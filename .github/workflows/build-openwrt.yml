@@ -3,7 +3,7 @@ name: Build OpenWrt Firmware
 on:
   push:
     branches:
-      - '*'  # Trigger on any branch push
+      - '*'
 
 jobs:
   build:
@@ -13,6 +13,9 @@ jobs:
         branch: [master, v23.05.3]  # Specify branches to be built
 
     steps:
+    - name: Checkout your repository
+      uses: actions/checkout@v3
+
     - name: Set up the build environment
       run: |
         sudo apt update
@@ -24,10 +27,6 @@ jobs:
       run: |
         git clone -b ${{ matrix.branch }} --single-branch --filter=blob:none https://github.com/immortalwrt/immortalwrt
         cd immortalwrt
-
-    - name: Show filesystem
-      run: |
-        du -h -d 2 ${{ github.workspace }}
 
     - name: Copy custom .config
       run: |
