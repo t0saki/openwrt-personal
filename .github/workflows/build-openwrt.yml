@@ -1,0 +1,62 @@
+name: Build OpenWrt Firmware
+
+on:
+  push:
+    branches:
+      - '*'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        branch: [master, v23.05.3]  # 在此指定要编译的分支列表
+
+    steps:
+    - name: Checkout source code
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ matrix.branch }}
+    
+    - name: Set up the build environment
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential clang flex bison g++ gawk \
+          gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev \
+          python3-setuptools rsync swig unzip zlib1g-dev file wget
+
+    - name: Clone ImmortalWrt source code
+      run: |
+        git clone -b ${{ matrix.branch }} --single-branch --filter=blob:none https://github.com/immortalwrt/immortalwrt
+        cd immortalwrt
+
+    - name: Copy custom .config
+      run: |
+        cp ${{ github.workspace }}/.config immortalwrt/.config
+
+    - name: Update and install feeds
+      run: |
+        cd immortalwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Build firmware
+      run: |
+        cd immortalwrt
+        make -j$(nproc)
+
+    - name: Upload firmware to GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          immortalwrt/bin/targets/x86/64/*  # 根据你的目标设备架构调整路径
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create a release
+      if: github.ref == 'refs/heads/master'
+      run: |
+        gh release create ${{ matrix.branch }} \
+          --title "${{ matrix.branch }} Build" \
+          --notes "Build of the ${{ matrix.branch }} branch" \
+          "immortalwrt/bin/targets/x86/64/*"
