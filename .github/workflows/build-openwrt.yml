@@ -43,11 +43,17 @@ jobs:
         cd immortalwrt
         make -j$(nproc)
 
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: openwrt-firmware-${{ matrix.branch }}
+        path: immortalwrt/
+
     - name: Upload firmware to GitHub Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          immortalwrt/bin/targets/x86/64/*  # Adjust the path according to your target device architecture
+          immortalwrt/bin/targets/x86/64/*
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
