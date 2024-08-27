@@ -25,6 +25,10 @@ jobs:
         git clone -b ${{ matrix.branch }} --single-branch --filter=blob:none https://github.com/immortalwrt/immortalwrt
         cd immortalwrt
 
+    - name: Show filesystem
+      run: |
+        du -h -d 2 ${{ github.workspace }}
+
     - name: Copy custom .config
       run: |
         cp ${{ github.workspace }}/.config immortalwrt/.config
