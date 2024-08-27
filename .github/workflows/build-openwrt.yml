@@ -3,21 +3,16 @@ name: Build OpenWrt Firmware
 on:
   push:
     branches:
-      - '*'
+      - '*'  # Trigger on any branch push
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        branch: [master, v23.05.3]  # 在此指定要编译的分支列表
+        branch: [master, v23.05.3]  # Specify branches to be built
 
     steps:
-    - name: Checkout source code
-      uses: actions/checkout@v3
-      with:
-        ref: ${{ matrix.branch }}
-    
     - name: Set up the build environment
       run: |
         sudo apt update
@@ -49,7 +44,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          immortalwrt/bin/targets/x86/64/*  # 根据你的目标设备架构调整路径
+          immortalwrt/bin/targets/x86/64/*  # Adjust the path according to your target device architecture
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
