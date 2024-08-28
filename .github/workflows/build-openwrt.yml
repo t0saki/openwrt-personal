@@ -41,8 +41,8 @@ jobs:
     - name: Build firmware
       run: |
         cd immortalwrt
-        # make -j$(nproc)
-        make -j1 V=s
+        make -j$(nproc)
+        # make -j1 V=s
       continue-on-error: true
 
     - name: Upload artifacts
