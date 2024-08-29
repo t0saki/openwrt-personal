@@ -72,7 +72,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          immortalwrt/bin/targets/x86/64/*
+          immortalwrt/bin/targets/*/*/*
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       continue-on-error: true
