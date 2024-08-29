@@ -35,8 +35,8 @@ clone_source_code() {
 # 复制自定义配置文件
 copy_custom_config() {
   echo "Copying custom .config..."
-  cp ../.config .config
-  cp ../build.sh build.sh
+  cp ../../.config .config
+  cp ../../build.sh build.sh
   echo ".config copied."
 }
 
