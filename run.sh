@@ -74,7 +74,7 @@ create_release() {
     gh release create "$branch" \
       --title "${branch} Build" \
       --notes "Build of the $branch branch" \
-      "immortalwrt/bin/targets/x86/64/*"
+      "immortalwrt/bin/targets/*/*/*"
     echo "Release created."
   fi
 }
