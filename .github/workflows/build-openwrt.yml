@@ -47,6 +47,7 @@ jobs:
     - name: Copy custom .config
       run: |
         cp ${{ github.workspace }}/.config immortalwrt/.config
+        cp ${{ github.workspace }}/build.sh immortalwrt/build.sh
 
     - name: Update and install feeds
       run: |
@@ -57,10 +58,7 @@ jobs:
     - name: Build firmware
       run: |
         cd immortalwrt
-        make -j$(nproc) defconfig download clean world
-        # make defconfig
-        # make -j$(nproc)
-        # make -j1 V=s
+        sh build.sh
       continue-on-error: true
 
     - name: Upload artifacts
