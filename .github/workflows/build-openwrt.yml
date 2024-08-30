@@ -1,3 +1,5 @@
+# 部分步骤借鉴https://github.com/P3TERX/Actions-OpenWrt/blob/main/.github/workflows/openwrt-builder.yml
+
 name: Build OpenWrt Firmware
 
 on:
@@ -127,11 +129,11 @@ jobs:
         body_path: release.txt
         files: ${{ env.FIRMWARE }}/*
 
-    - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@main
-      with:
-        retain_days: 7
-        keep_minimum_runs: 3
+    # - name: Delete workflow runs
+    #   uses: Mattraks/delete-workflow-runs@main
+    #   with:
+    #     retain_days: 
+    #     keep_minimum_runs: 3
 
     # - name: Remove old Releases
     #   uses: dev-drprasad/delete-older-releases@master
