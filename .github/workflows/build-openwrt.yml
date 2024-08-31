@@ -18,7 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        branch: [master, v23.05.3]  # Specify branches to be built
+        branch: [master, v23.05.3]
+        config: [base.config, alderlake.config]
 
     steps:
     - name: Checkout your repository
@@ -55,7 +56,7 @@ jobs:
 
     - name: Copy custom .config
       run: |
-        cp ${{ github.workspace }}/.config immortalwrt/.config
+        cp ${{ github.workspace }}/${{ matrix.config }} immortalwrt/.config
         cp ${{ github.workspace }}/build.sh immortalwrt/build.sh
 
     - name: Download package
@@ -79,6 +80,7 @@ jobs:
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
         echo "BRANCH_NAME=_${{ matrix.branch }}" >> $GITHUB_ENV
+        echo "CONFIG_NAME=_${{ matrix.config }}" >> $GITHUB_ENV
 
     - name: Check space usage
       if: (!cancelled())
@@ -88,7 +90,7 @@ jobs:
       uses: actions/upload-artifact@main
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
-        name: ImmortalWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}${{ env.BRANCH_NAME }}
+        name: ImmortalWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}${{ env.BRANCH_NAME }}${{ env.CONFIG_NAME }}
         path: immortalwrt/bin
 
     - name: Organize files
@@ -104,14 +106,14 @@ jobs:
       uses: actions/upload-artifact@main
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: ImmortalWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}${{ env.BRANCH_NAME }}
+        name: ImmortalWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}${{ env.BRANCH_NAME }}${{ env.CONFIG_NAME }}
         path: ${{ env.FIRMWARE }}
 
     - name: Generate release tag
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
-        echo "release_tag=$(date +"%Y.%m.%d-%H%M")_${{ matrix.branch }}" >> $GITHUB_OUTPUT
+        echo "release_tag=$(date +"%Y.%m.%d-%H%M")_${{ matrix.branch }}_${{ matrix.config }}" >> $GITHUB_OUTPUT
         touch release.txt
         [ ${UPLOAD_GOFILE} = true && ${{ steps.gofile.outputs.url }} ] && echo "🔗 [GoFile](${{ steps.gofile.outputs.url }})" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
