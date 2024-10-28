@@ -8,6 +8,7 @@ on:
       - '*'
 
 env:
+  WORKING_DIR: /mnt  # 默认工作路径
   UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
@@ -28,12 +29,7 @@ jobs:
     - name: Free Disk Space (Ubuntu)
       uses: jlumbroso/free-disk-space@main
       with:
-        # this might remove tools that are actually needed,
-        # if set to "true" but frees about 6 GB
         tool-cache: true
-        
-        # all of these default to true, but feel free to set to
-        # "false" if necessary for your workflow
         android: true
         dotnet: true
         haskell: true
@@ -50,24 +46,24 @@ jobs:
 
     - name: Clone ImmortalWrt source code
       run: |
-        git clone -b ${{ matrix.branch }} --single-branch --filter=blob:none https://github.com/immortalwrt/immortalwrt
-        cd immortalwrt
+        mkdir -p $WORKING_DIR/immortalwrt
+        git clone -b ${{ matrix.branch }} --single-branch --filter=blob:none https://github.com/immortalwrt/immortalwrt $WORKING_DIR/immortalwrt
 
     - name: Update feeds
-      run: cd immortalwrt && ./scripts/feeds update -a
+      run: cd $WORKING_DIR/immortalwrt && ./scripts/feeds update -a
 
     - name: Install feeds
-      run: cd immortalwrt && ./scripts/feeds install -a
+      run: cd $WORKING_DIR/immortalwrt && ./scripts/feeds install -a
 
     - name: Copy custom .config
       run: |
-        cp ${{ github.workspace }}/${{ matrix.config }} immortalwrt/.config
-        cp ${{ github.workspace }}/build.sh immortalwrt/build.sh
+        cp ${{ github.workspace }}/${{ matrix.config }} $WORKING_DIR/immortalwrt/.config
+        cp ${{ github.workspace }}/build.sh $WORKING_DIR/immortalwrt/build.sh
 
     - name: Download package
       id: package
       run: |
-        cd immortalwrt
+        cd $WORKING_DIR/immortalwrt
         make defconfig
         cat .config
         make download -j8
@@ -77,7 +73,7 @@ jobs:
     - name: Compile the firmware
       id: compile
       run: |
-        cd immortalwrt
+        cd $WORKING_DIR/immortalwrt
         echo -e "$(nproc) thread compile"
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
@@ -96,13 +92,13 @@ jobs:
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
         name: ImmortalWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}${{ env.BRANCH_NAME }}${{ env.CONFIG_NAME }}
-        path: immortalwrt/bin
+        path: $WORKING_DIR/immortalwrt/bin
 
     - name: Organize files
       id: organize
       if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
-        cd immortalwrt/bin/targets/*/*
+        cd $WORKING_DIR/immortalwrt/bin/targets/*/*
         rm -rf packages
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
