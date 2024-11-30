@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - '*'
+  workflow_dispatch:
 
 env:
   UPLOAD_BIN_DIR: false
@@ -18,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        branch: [master, openwrt-24.10, v23.05.4]
+        branch: [openwrt-24.10, v23.05.4]
         config: [base.config, alderlake.config]
 
     steps:
