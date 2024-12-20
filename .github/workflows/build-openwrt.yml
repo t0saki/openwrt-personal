@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        branch: [openwrt-24.10, v24.10.0-rc1]
-        config: [base.config, alderlake.config]
+        branch: [openwrt-24.10]
+        config: [alderlake.config]
 
     steps:
     - name: Checkout your repository
