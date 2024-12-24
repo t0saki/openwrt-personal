@@ -16,27 +16,29 @@
 
 ### 1. 修改构建分支和配置
 根据需求，编辑 [`.github/workflows/build-openwrt.yml`](https://github.com/t0saki/openwrt-personal/blob/main/.github/workflows/build-openwrt.yml) 文件。在以下部分指定需要构建的分支和配置文件：
-
+```yaml
 env:
   BRANCH: [选择目标分支，例如 openwrt-24.10]
   CONFIG: [选择配置文件，例如 base.config 或 alderlake.config]
+```
 
-2. 定制配置文件
+### 2. 定制配置文件
 
 根据 OpenWRT 或 ImmortalWRT 的官方说明，修改项目根目录中的 *.config 文件以自定义构建内容。例如：
-	•	添加或删除需要的包。
-	•	调整内核模块支持。
-	•	配置网络、存储等功能。
+  - 添加或删除需要的包。
+  - 调整内核模块支持。
+  - 配置网络、存储等功能。
 
-3. 触发构建
+
+### 3. 触发构建
 
 推送更改到仓库后，GitHub Actions 将自动触发构建过程并生成固件。
 
-注意事项
-	•	配置文件 (*.config) 的修改需要遵循 OpenWRT 或 ImmortalWRT 的配置格式，确保兼容性。
-	•	在构建前，请确认 build-openwrt.yml 文件中的分支和配置文件路径正确无误。
-	•	每次构建的日志和生成的固件可以在 GitHub Actions 的工作流页面中找到。
+## 注意事项
+  - 配置文件 (*.config) 的修改需要遵循 OpenWRT 或 ImmortalWRT 的配置格式，确保兼容性。
+  - 在构建前，请确认 build-openwrt.yml 文件中的分支和配置文件路径正确无误。
+  - 每次构建的日志和生成的固件可以在 GitHub Actions 的工作流页面中找到。
 
-参考资料  
-	•	[OpenWRT 构建文档](https://openwrt.org/docs/guide-developer/toolchain/use-buildsystem)  
-	•	[ImmortalWRT 官方文档](https://github.com/immortalwrt/immortalwrt/blob/master/README.md) 
+## 参考资料  
+  - [OpenWRT 构建文档](https://openwrt.org/docs/guide-developer/toolchain/use-buildsystem)  
+  - [ImmortalWRT 官方文档](https://github.com/immortalwrt/immortalwrt/blob/master/README.md) 
