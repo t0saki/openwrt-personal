@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        branch: [openwrt-24.10, v24.10.0-rc2]
+        branch: [master, openwrt-24.10, v24.10.0-rc3]
         config: [base.config, alderlake.config]
 
     steps:
