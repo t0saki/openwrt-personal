@@ -48,6 +48,15 @@ update_and_install_feeds() {
   echo "Feeds updated and installed."
 }
 
+# 运行自定义脚本
+run_custom_script() {
+  echo "Running custom script..."
+  cp ../../diy.sh diy.sh
+  chmod +x diy.sh
+  ./diy.sh
+  echo "Custom script run."
+}
+
 # 构建固件
 build_firmware() {
   echo "Building firmware..."
@@ -93,6 +102,7 @@ main() {
     clone_source_code "$branch"
     copy_custom_config
     update_and_install_feeds
+    run_custom_script
     build_firmware
     # upload_artifacts "$branch"
     # create_release "$branch"
