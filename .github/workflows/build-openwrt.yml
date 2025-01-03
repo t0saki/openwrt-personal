@@ -64,6 +64,7 @@ jobs:
       run: |
         cp ${{ github.workspace }}/${{ matrix.config }} immortalwrt/.config
         cp ${{ github.workspace }}/build.sh immortalwrt/build.sh
+        cp ${{ github.workspace }}/diy.sh immortalwrt/diy.sh
 
     - name: Download package
       id: package
@@ -74,6 +75,12 @@ jobs:
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
+
+    - name: Run custom script
+      run: |
+        cd immortalwrt
+        chmod +x diy.sh
+        ./diy.sh
 
     - name: Compile the firmware
       id: compile
