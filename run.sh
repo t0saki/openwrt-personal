@@ -52,7 +52,6 @@ update_and_install_feeds() {
 run_custom_script() {
   echo "Running custom script..."
   cp ../../diy.sh diy.sh
-  chmod +x diy.sh
   ./diy.sh
   echo "Custom script run."
 }

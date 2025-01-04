@@ -69,7 +69,6 @@ jobs:
     - name: Run custom script
       run: |
         cd immortalwrt
-        chmod +x diy.sh
         ./diy.sh
 
     - name: Download package
