@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        branch: [master, v24.10.0]
+        branch: [v24.10.0]
         config: [base.config, alderlake.config]
 
     steps:
