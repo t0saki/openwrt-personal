@@ -175,9 +175,6 @@ jobs:
     name: Create Release
     # This job runs only after ALL jobs in the build matrix succeed
     needs: build
-    # Run only if UPLOAD_RELEASE is true and the build jobs were successful
-    # The 'needs.build.*.result' check is more robust than a simple 'if: success()' here
-    if: !cancelled()
     runs-on: ubuntu-latest
     steps:
       - name: Generate Release Tag and Name
