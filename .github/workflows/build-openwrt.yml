@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        branch: [v24.10.0]
+        branch: [v24.10.1]
         config: [base.config, alderlake.config]
 
     steps:
@@ -64,12 +64,13 @@ jobs:
       run: |
         cp ${{ github.workspace }}/${{ matrix.config }} immortalwrt/.config
         cp ${{ github.workspace }}/build.sh immortalwrt/build.sh
-        cp ${{ github.workspace }}/diy.sh immortalwrt/diy.sh
+        cp ${{ github.workspace }}/diy-part1.sh immortalwrt/diy-part1.sh
+        cp ${{ github.workspace }}/diy-part2.sh immortalwrt/diy-part2.sh
 
-    - name: Run custom script
+    - name: Run custom script part 1
       run: |
         cd immortalwrt
-        ./diy.sh
+        ./diy-part1.sh
 
     - name: Download package
       id: package
@@ -80,6 +81,11 @@ jobs:
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
+    
+    - name: Run custom script part 2
+      run: |
+        cd immortalwrt
+        ./diy-part2.sh
 
     - name: Compile the firmware
       id: compile
