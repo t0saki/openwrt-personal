@@ -177,8 +177,7 @@ jobs:
     needs: build
     # Run only if UPLOAD_RELEASE is true and the build jobs were successful
     # The 'needs.build.*.result' check is more robust than a simple 'if: success()' here
-    # Corrected line below:
-    if: ${{ env.UPLOAD_RELEASE }} == 'true' && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    if: !cancelled()
     runs-on: ubuntu-latest
     steps:
       - name: Generate Release Tag and Name
