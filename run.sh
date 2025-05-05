@@ -40,6 +40,14 @@ copy_custom_config() {
   echo ".config copied."
 }
 
+# 运行自定义脚本
+run_custom_script_1() {
+  echo "Running custom script 1..."
+  cp ../../diy-part1.sh diy-part1.sh
+  ./diy-part1.sh
+  echo "Custom script run."
+}
+
 # 更新并安装 feeds
 update_and_install_feeds() {
   echo "Updating and installing feeds..."
@@ -49,10 +57,10 @@ update_and_install_feeds() {
 }
 
 # 运行自定义脚本
-run_custom_script() {
-  echo "Running custom script..."
-  cp ../../diy.sh diy.sh
-  ./diy.sh
+run_custom_script_2() {
+  echo "Running custom script 2..."
+  cp ../../diy-part2.sh diy-part2.sh
+  ./diy-part2.sh
   echo "Custom script run."
 }
 
