@@ -1,16 +1,18 @@
 # OpenWRT Personal Build Workflow
 
 本项目提供了一种自动化构建 OpenWRT 固件的工作流，用户可以通过修改配置文件和分支选择生成自定义的 OpenWRT 固件。目前该项目构建ImmortalWrt分支，可直接在release下载并遵循当地法律法规使用。
+当前配置支持Cudy TR3000和x86_64的设备。
 
 ## 分支和配置说明
 
 - **分支**: 
   - `openwrt-24.10`: 24.10的SNAPSHOT分支。
-  - `v24.10.0-rc2`: ImmortalWrt的相应Tag。
+  - `v24.10.1`: ImmortalWrt的相应Tag。
   
 - **配置文件**:
   - `base.config`: 适用于大部分x86设备的配置，包含许多常用插件。默认使用2G分区防止容量不足。
   - `alderlake.config`: 适用于Alderlake架构构建的配置，使用O2优化，其余配置与base一致。
+  - `tr3000.config`: 适用于Cudy TR3000 ubootmod构建的配置，包含常用插件和RNDIS驱动，理论支持USB分享网络。安装参考[此处](https://github.com/immortalwrt/immortalwrt/commit/51272fcd004955198265f030707aac1dd9794b98)。
 
 ## 如何使用
 
