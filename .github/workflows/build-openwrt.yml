@@ -20,7 +20,7 @@ jobs:
     strategy:
       matrix:
         branch: [v24.10.1]
-        config: [base.config, alderlake.config, tr3000.config]
+        config: [base.config, alderlake.config, tr3000_v1.config, tr3000_v1_ubootmod.config]
         # Add more branches/configs as needed
       fail-fast: false # Optional: Allow other jobs to continue if one fails
     outputs:
@@ -75,6 +75,7 @@ jobs:
         cp "${{ github.workspace }}/build.sh" immortalwrt/build.sh || true # Allow scripts to be optional
         cp "${{ github.workspace }}/diy-part1.sh" immortalwrt/diy-part1.sh || true
         cp "${{ github.workspace }}/diy-part2.sh" immortalwrt/diy-part2.sh || true
+        cp "${{ github.workspace }}/999-dts-cudy-tr3000-v1-modification.patch" immortalwrt/999-dts-cudy-tr3000-v1-modification.patch || true
 
     - name: Run custom script part 1 (if exists)
       if: success() && hashFiles('immortalwrt/diy-part1.sh') != ''

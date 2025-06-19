@@ -1,0 +1,11 @@
+diff --git a/target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1.dts b/target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1.dts
+index d65e2352b7..a29b18117c 100644
+--- a/target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1.dts
++++ b/target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1.dts
+@@ -22,5 +22,5 @@
+ };
+ 
+ &ubi {
+-	reg = <0x5c0000 0x4000000>;
++	reg = <0x5c0000 0x7000000>;
+ };
