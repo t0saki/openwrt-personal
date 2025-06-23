@@ -108,9 +108,19 @@ jobs:
       id: compile
       run: |
         cd immortalwrt
+
+        MY_PERSONAL_ID="tosaki"
+        BUILD_DATE=$(date +"%Y%m%d")
+        CUSTOM_EXTRA_NAME="${MY_PERSONAL_ID}-${BUILD_DATE}"
+        
         echo -e "$(nproc) thread compile for ${{ matrix.branch }} / ${{ matrix.config }}"
-        make -j$(nproc) || make -j1 || make -j1 V=s
+        
+        make -j$(nproc) EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}" || \
+        make -j1 EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}" || \
+        make -j1 V=s EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}"
+        
         echo "status=success" >> $GITHUB_OUTPUT
+        
         # Keep env vars for potential use in renaming or artifact names
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=$(cat DEVICE_NAME)" >> $GITHUB_ENV || echo "DEVICE_NAME=unknown" >> $GITHUB_ENV
