@@ -12,7 +12,8 @@
 - **配置文件**:
   - `base.config`: 适用于大部分x86设备的配置，包含许多常用插件。默认使用2G分区防止容量不足。
   - `alderlake.config`: 适用于Alderlake架构（如N100、G8505等12代以后的Intel处理器）构建的配置，使用O2优化，其余配置与base一致。
-  - `tr3000.config`: 适用于Cudy TR3000 ubootmod构建的配置，包含常用插件和RNDIS驱动，理论支持USB分享网络。安装参考[此处](https://github.com/immortalwrt/immortalwrt/commit/51272fcd004955198265f030707aac1dd9794b98)。
+  - `tr3000_v1`: 适用于Cudy TR3000的112m大分区版本。请使用对应大分区uboot。
+  - `tr3000_v1_ubootmod`: 适用于Cudy TR3000 ubootmod构建的配置，包含常用插件和RNDIS驱动，理论支持USB分享网络。安装参考[此处](https://github.com/immortalwrt/immortalwrt/commit/51272fcd004955198265f030707aac1dd9794b98)。
 
 ## 如何自定义
 
