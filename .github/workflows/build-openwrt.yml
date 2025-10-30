@@ -141,8 +141,7 @@ jobs:
         
         echo -e "$(nproc) thread compile for ${{ matrix.branch }} / ${{ matrix.config }}"
         
-        make -j$(nproc) EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}" || \
-        make -j1 EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}" || \
+        make -j2 EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}" || \
         make -j1 V=s EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}"
         
         echo "status=success" >> $GITHUB_OUTPUT
