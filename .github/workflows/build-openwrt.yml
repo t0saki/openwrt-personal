@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        branch: [v24.10.3]
+        branch: [v24.10.4]
         config: [base.config, alderlake.config, tr3000_v1.config, tr3000_v1_ubootmod.config]
         # Add more branches/configs as needed
       fail-fast: false # Optional: Allow other jobs to continue if one fails
