@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        branch: [v24.10.4, openwrt-25.12]
+        branch: [openwrt-24.10, openwrt-25.12]
         config: [base.config, alderlake.config, tr3000_v1.config, tr3000_v1_ubootmod.config]
         # Add more branches/configs as needed
       fail-fast: false # Optional: Allow other jobs to continue if one fails
@@ -72,6 +72,13 @@ jobs:
         echo 'export CC="ccache gcc"' >> $GITHUB_ENV
         echo 'export CXX="ccache g++"' >> $GITHUB_ENV
 
+    - name: Clone ImmortalWrt source code
+      run: |
+        echo "Cloning branch ${{ matrix.branch }}"
+        git clone -b ${{ matrix.branch }} --single-branch --filter=blob:none https://github.com/immortalwrt/immortalwrt
+        cd immortalwrt
+
+
     - name: Restore caches (dl + ccache)
       uses: actions/cache@v4
       with:
@@ -81,12 +88,6 @@ jobs:
         key: ${{ runner.os }}-immortalwrt-${{ matrix.branch }}-${{ matrix.config }}-${{ hashFiles(matrix.config) }}
         restore-keys: |
           ${{ runner.os }}-immortalwrt-${{ matrix.branch }}-${{ matrix.config }}-
-
-    - name: Clone ImmortalWrt source code
-      run: |
-        echo "Cloning branch ${{ matrix.branch }}"
-        git clone -b ${{ matrix.branch }} --single-branch --filter=blob:none https://github.com/immortalwrt/immortalwrt
-        cd immortalwrt
 
     - name: Update feeds
       run: cd immortalwrt && ./scripts/feeds update -a
@@ -134,6 +135,9 @@ jobs:
       id: compile
       run: |
         cd immortalwrt
+
+        # Workaround: intel-microcode parallel build may fail with existing intel-ucode-ipkg dir
+        rm -rf build_dir/target-*/intel-microcode-*/intel-ucode-ipkg || true
 
         MY_PERSONAL_ID="tosaki"
         BUILD_DATE=$(date +"%Y%m%d")
