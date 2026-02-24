@@ -72,16 +72,6 @@ jobs:
         echo 'export CC="ccache gcc"' >> $GITHUB_ENV
         echo 'export CXX="ccache g++"' >> $GITHUB_ENV
 
-    - name: Restore caches (dl + ccache)
-      uses: actions/cache@v4
-      with:
-        path: |
-          immortalwrt/dl
-          ~/.ccache
-        key: ${{ runner.os }}-immortalwrt-${{ matrix.branch }}-${{ matrix.config }}-${{ hashFiles(matrix.config) }}
-        restore-keys: |
-          ${{ runner.os }}-immortalwrt-${{ matrix.branch }}-${{ matrix.config }}-
-
     - name: Clone ImmortalWrt source code
       run: |
         echo "Cloning branch ${{ matrix.branch }}"
@@ -98,6 +88,15 @@ jobs:
       run: |
         echo "Using config: ${{ matrix.config }}"
         cp "${{ github.workspace }}/${{ matrix.config }}" immortalwrt/.config
+
+        # 25.12 package set compatibility: avoid file conflicts during package/install
+        if [ "${{ matrix.branch }}" = "openwrt-25.12" ]; then
+          sed -i '/^CONFIG_PACKAGE_luci-app-mosdns=/d' immortalwrt/.config
+          sed -i '/^CONFIG_PACKAGE_luci-app-openvpn-server=/d' immortalwrt/.config
+          echo '# CONFIG_PACKAGE_luci-app-mosdns is not set' >> immortalwrt/.config
+          echo '# CONFIG_PACKAGE_luci-app-openvpn-server is not set' >> immortalwrt/.config
+        fi
+
         cp "${{ github.workspace }}/build.sh" immortalwrt/build.sh || true # Allow scripts to be optional
         cp "${{ github.workspace }}/diy-part1.sh" immortalwrt/diy-part1.sh || true
         cp "${{ github.workspace }}/diy-part2.sh" immortalwrt/diy-part2.sh || true
@@ -135,14 +134,20 @@ jobs:
       run: |
         cd immortalwrt
 
+        # Workaround: intel-microcode parallel build may fail with existing intel-ucode-ipkg dir
+        rm -rf build_dir/target-*/intel-microcode-*/intel-ucode-ipkg || true
+
         MY_PERSONAL_ID="tosaki"
         BUILD_DATE=$(date +"%Y%m%d")
         CUSTOM_EXTRA_NAME="${MY_PERSONAL_ID}-${BUILD_DATE}"
         
         echo -e "$(nproc) thread compile for ${{ matrix.branch }} / ${{ matrix.config }}"
         
-        make -j2 EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}" || \
-        make -j1 V=s EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}"
+        make -j2 EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}" || { \
+          rm -rf build_dir/target-*/intel-microcode-*/*ipkg* tmp pkginfo 2>/dev/null || true; \
+          make package/firmware/intel-microcode/clean V=s || true; \
+          make -j1 V=s EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}"; \
+        }
         
         echo "status=success" >> $GITHUB_OUTPUT
         
