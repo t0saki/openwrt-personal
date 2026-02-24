@@ -78,17 +78,6 @@ jobs:
         git clone -b ${{ matrix.branch }} --single-branch --filter=blob:none https://github.com/immortalwrt/immortalwrt
         cd immortalwrt
 
-
-    - name: Restore caches (dl + ccache)
-      uses: actions/cache@v4
-      with:
-        path: |
-          immortalwrt/dl
-          ~/.ccache
-        key: ${{ runner.os }}-immortalwrt-${{ matrix.branch }}-${{ matrix.config }}-${{ hashFiles(matrix.config) }}
-        restore-keys: |
-          ${{ runner.os }}-immortalwrt-${{ matrix.branch }}-${{ matrix.config }}-
-
     - name: Update feeds
       run: cd immortalwrt && ./scripts/feeds update -a
 
@@ -145,8 +134,11 @@ jobs:
         
         echo -e "$(nproc) thread compile for ${{ matrix.branch }} / ${{ matrix.config }}"
         
-        make -j2 EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}" || \
-        make -j1 V=s EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}"
+        make -j2 EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}" || { \
+          rm -rf build_dir/target-*/intel-microcode-*/*ipkg* tmp pkginfo 2>/dev/null || true; \
+          make package/firmware/intel-microcode/clean V=s || true; \
+          make -j1 V=s EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}"; \
+        }
         
         echo "status=success" >> $GITHUB_OUTPUT
         
