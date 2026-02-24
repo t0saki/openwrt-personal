@@ -89,13 +89,13 @@ jobs:
         echo "Using config: ${{ matrix.config }}"
         cp "${{ github.workspace }}/${{ matrix.config }}" immortalwrt/.config
 
-        # 25.12 package set compatibility: avoid file conflicts during package/install
-        if [ "${{ matrix.branch }}" = "openwrt-25.12" ]; then
-          sed -i '/^CONFIG_PACKAGE_luci-app-mosdns=/d' immortalwrt/.config
-          sed -i '/^CONFIG_PACKAGE_luci-app-openvpn-server=/d' immortalwrt/.config
-          echo '# CONFIG_PACKAGE_luci-app-mosdns is not set' >> immortalwrt/.config
-          echo '# CONFIG_PACKAGE_luci-app-openvpn-server is not set' >> immortalwrt/.config
-        fi
+        # # 25.12 package set compatibility: avoid file conflicts during package/install
+        # if [ "${{ matrix.branch }}" = "openwrt-25.12" ]; then
+        #   sed -i '/^CONFIG_PACKAGE_luci-app-mosdns=/d' immortalwrt/.config
+        #   sed -i '/^CONFIG_PACKAGE_luci-app-openvpn-server=/d' immortalwrt/.config
+        #   echo '# CONFIG_PACKAGE_luci-app-mosdns is not set' >> immortalwrt/.config
+        #   echo '# CONFIG_PACKAGE_luci-app-openvpn-server is not set' >> immortalwrt/.config
+        # fi
 
         cp "${{ github.workspace }}/build.sh" immortalwrt/build.sh || true # Allow scripts to be optional
         cp "${{ github.workspace }}/diy-part1.sh" immortalwrt/diy-part1.sh || true
