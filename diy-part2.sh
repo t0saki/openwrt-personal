@@ -13,3 +13,13 @@ if [[ -f "${RUST_MAKEFILE}" ]]; then
 else
   echo "File ${RUST_MAKEFILE} does not exist." >&2
 fi
+
+# Enable BBR congestion control algorithm
+echo "net.core.default_qdisc=fq" >> package/base-files/files/etc/sysctl.conf
+echo "net.ipv4.tcp_congestion_control=bbr" >> package/base-files/files/etc/sysctl.conf
+
+# Fix intel-microcode build error
+sed -i 's/mkdir \$(PKG_BUILD_DIR)\/intel-ucode-ipkg/rm -rf \$(PKG_BUILD_DIR)\/intel-ucode-ipkg \&\& mkdir -p \$(PKG_BUILD_DIR)\/intel-ucode-ipkg/g' package/firmware/intel-microcode/Makefile
+
+# Fix luci-app-openvpn-server conflict
+rm -f feeds/luci/applications/luci-app-openvpn-server/root/etc/config/openvpn
