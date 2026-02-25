@@ -143,7 +143,7 @@ jobs:
         
         echo -e "$(nproc) thread compile for ${{ matrix.branch }} / ${{ matrix.config }}"
         
-        make -j2 EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}" || { \
+        make -j$(nproc) EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}" || { \
           rm -rf build_dir/target-*/intel-microcode-*/*ipkg* tmp pkginfo 2>/dev/null || true; \
           make package/firmware/intel-microcode/clean V=s || true; \
           make -j1 V=s EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}"; \
