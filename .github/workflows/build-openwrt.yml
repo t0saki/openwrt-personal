@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        branch: [openwrt-25.12]
+        branch: [v25.12.0]
         config: [base.config, alderlake.config, tr3000_v1.config, tr3000_v1_airplay2.config]
         # Add more branches/configs as needed
       fail-fast: false # Optional: Allow other jobs to continue if one fails
