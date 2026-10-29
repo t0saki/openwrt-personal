@@ -17,12 +17,14 @@ on:
         description: Profiles to build (JSON list, see profiles/)
         default: '["base", "alderlake", "tr3000_v1"]'
       release:
-        description: Publish a GitHub release (prerelease when not on main)
+        description: Publish a GitHub release (main only; other branches keep workflow artifacts)
         type: boolean
         default: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # A new push supersedes an older push build; manual runs never cancel or
+  # get cancelled.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && 'push' || github.run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -38,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Keep the default in sync with PROFILES in the release job.
+        # Keep the default in sync with PROFILES and make_latest in the release job.
         profile: ${{ fromJSON(inputs.profiles || '["base", "alderlake", "tr3000_v1"]') }}
     env:
       SRC_DIR: ${{ github.workspace }}/immortalwrt
@@ -49,9 +51,13 @@ jobs:
       - name: Free disk space
         uses: jlumbroso/free-disk-space@v2.0.0
         with:
-          tool-cache: true
+          preinstalled-runtimes: true
           # Keep swap: LTO links can exceed the runner's 16 GB of RAM.
           swap-storage: false
+
+      # Shared by compile and collect so a build crossing midnight keeps one name.
+      - name: Set image name
+        run: echo "BUILD_ID=tosaki-$(date +%Y%m%d)" >> "$GITHUB_ENV"
 
       - name: Build on the large /mnt disk
         run: |
@@ -85,7 +91,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: immortalwrt/dl
-          key: dl-${{ hashFiles('build.env') }}-${{ matrix.profile }}-${{ github.run_id }}
+          key: dl-${{ hashFiles('build.env') }}-${{ matrix.profile }}-${{ hashFiles('configs/**', 'profiles/**', 'patches/**') }}
           restore-keys: |
             dl-${{ hashFiles('build.env') }}-${{ matrix.profile }}-
             dl-${{ hashFiles('build.env') }}-
@@ -95,7 +101,7 @@ jobs:
 
       - name: Compile
         run: |
-          BUILD_ID="tosaki-$(date +%Y%m%d)" scripts/build.sh compile
+          scripts/build.sh compile
           df -h "$SRC_DIR"
 
       - name: Upload build logs
@@ -103,9 +109,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: logs-${{ matrix.profile }}
+          include-hidden-files: true
           path: |
-            immortalwrt/logs/**/*.txt
-            !immortalwrt/logs/**/check-*.txt
+            immortalwrt/logs/
             immortalwrt/.config
           retention-days: 7
 
@@ -131,7 +137,7 @@ jobs:
   release:
     needs: build
     # Publish whatever legs succeeded; a failed leg shows up in the notes.
-    if: ${{ !cancelled() && (github.event_name == 'push' || inputs.release) }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.release) }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -157,7 +163,13 @@ jobs:
             echo "| profile | fragments | status |"
             echo "|---|---|---|"
             for p in $(jq -r '.[]' <<< "$PROFILES"); do
-              if [ -d "firmware/firmware-$p" ]; then s=ok; else s=**failed**; fi
+              # download-artifact flattens a single artifact, so match on a file collect
+              # always writes rather than on the directory layout.
+              if [ -n "$(find firmware -name "diffconfig_${IMMORTALWRT_REF}_$p" -print -quit)" ]; then
+                s=ok
+              else
+                s=**failed**
+              fi
               echo "| $p | $(paste -sd' ' "profiles/$p") | $s |"
             done
             echo
@@ -172,14 +184,16 @@ jobs:
           mkdir payload
           find firmware -type f -exec mv -t payload {} +
           (cd payload && sha256sum * > sha256sums.txt)
-          echo "tag=build-$(date +%Y%m%d%H%M)" >> "$GITHUB_OUTPUT"
+          # One tag per run, so "Re-run failed jobs" updates the same release.
+          echo "tag=build-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "date=$(date +%F)" >> "$GITHUB_OUTPUT"
 
       - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
-          name: Firmware ${{ steps.meta.outputs.tag }}
+          name: Firmware ${{ steps.meta.outputs.date }} (#${{ github.run_number }})
           target_commitish: ${{ github.sha }}
           body_path: notes.md
           files: payload/*
-          prerelease: ${{ github.ref != 'refs/heads/main' }}
-          make_latest: ${{ github.ref == 'refs/heads/main' }}
+          # A partial run (failed leg or hand-picked profiles) never becomes latest.
+          make_latest: ${{ needs.build.result == 'success' && (github.event_name == 'push' || inputs.profiles == '["base", "alderlake", "tr3000_v1"]') }}

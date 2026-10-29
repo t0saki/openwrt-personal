@@ -30,7 +30,7 @@ config 片段只写**想要的东西**，依赖库、`luci-i18n-*-zh-cn` 之类�
 
 ## 构建
 
-**CI**：push 到 `main`（只在构建相关文件变动时）会构建默认的三个 profile 并发布 Release。Actions → *Build ImmortalWrt* → *Run workflow* 可以手动指定 profile 列表，例如 `["tr3000_v1_airplay2"]`。在非 `main` 分支上手动触发时发布为 prerelease。某个 profile 失败不影响其它 profile 发布，失败情况会写进 release notes，失败日志在 workflow artifact 里。
+**CI**：push 到 `main`（只在构建相关文件变动时）会构建默认的三个 profile 并发布 Release。Actions → *Build ImmortalWrt* → *Run workflow* 可以手动指定 profile 列表，例如 `["tr3000_v1_airplay2"]`。Release 只从 `main` 发布；其它分支的手动构建只留 7 天的 workflow artifact。某个 profile 失败不影响其它 profile 发布，状态会写进 release notes，失败日志在 artifact `logs-<profile>` 里；只有三个默认 profile 全部成功的构建才会标记为 Latest。
 
 **本地**（x86_64 Linux，依赖同 [OpenWrt 构建文档](https://openwrt.org/docs/guide-developer/toolchain/install-buildsystem)）：
 
@@ -49,7 +49,13 @@ ls out/tr3000_v1/
 
 - 固件内核是自己编译的，vermagic 和官方不同，**刷机后不能从官方源 `apk add kmod-*`**；需要的内核模块请直接编进固件。每次构建的 packages/kmods 会作为 workflow artifact 保留 7 天，但只能装在同一次构建的固件上。
 - 25.12 改用 apk，从 24.10 升级会丢失用户自行安装的包。
-- TR3000 的 sysupgrade 镜像超过 112M 时构建会直接失败（`check-size`）。
+- TR3000 的 sysupgrade 镜像超过 112M 时上游 `check-size` 会删掉镜像，`build.sh collect` 发现没有可刷写镜像就让该 profile 失败，不会发出空 release。
+
+## 从旧固件（`build-2026*` 及更早）升级
+
+- passwall 去掉了 shadowsocks-rust：保留配置升级后，类型为 SS-Rust 的节点需要改成 Xray 或 sing-box 类型。
+- TR3000 去掉了 frps 和 ngrokc。
+- 旧固件往 `/etc/sysctl.conf` 追加过 `default_qdisc=fq` 和 `bbr` 两行：前者因为内核没有 `sch_fq` 本来就不生效，后者已由 `kmod-tcp-bbr` 自带的 `/etc/sysctl.d/12-tcp-bbr.conf` 提供。保留配置升级时这两行会留着，可以手动删掉。
 
 ## 参考
 

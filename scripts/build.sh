@@ -18,6 +18,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/build.env"
 SRC_DIR="${SRC_DIR:-$ROOT/immortalwrt}"
 OUT_DIR="${OUT_DIR:-$ROOT/out}"
+BUILD_ID="${BUILD_ID:-tosaki-$(date +%Y%m%d)}"
 
 log() { printf '\n==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -38,8 +39,15 @@ prepare() {
 		# Full history (blob-less) is needed: scripts/getver.sh counts commits.
 		git clone -b "$IMMORTALWRT_REF" --single-branch --filter=blob:none \
 			"$IMMORTALWRT_REPO" "$SRC_DIR"
+		cd "$SRC_DIR"
+	else
+		# Re-running on an existing tree: move to the pinned ref and drop
+		# earlier fixups/patches so they apply to pristine sources again.
+		cd "$SRC_DIR"
+		log "reset tree to $IMMORTALWRT_REF"
+		git fetch -q --filter=blob:none origin "$IMMORTALWRT_REF"
+		git checkout -qf FETCH_HEAD
 	fi
-	cd "$SRC_DIR"
 
 	log "feeds update"
 	./scripts/feeds update -a
@@ -74,12 +82,9 @@ prepare() {
 	log "patches"
 	local p
 	for p in "$ROOT"/patches/*.patch; do
-		if git apply --reverse --check "$p" 2>/dev/null; then
-			echo "already applied: ${p##*/}"
-		else
-			git apply "$p"
-			echo "applied: ${p##*/}"
-		fi
+		[ -e "$p" ] || continue
+		git apply "$p"
+		echo "applied: ${p##*/}"
 	done
 
 	log "files overlay"
@@ -96,8 +101,11 @@ fetch_prebuilt_llvm_bpf() {
 	board="$(sed -n 's/^CONFIG_TARGET_BOARD="\(.*\)"/\1/p' .config)"
 	subtarget="$(sed -n 's/^CONFIG_TARGET_SUBTARGET="\(.*\)"/\1/p' .config)"
 	base="https://downloads.immortalwrt.org/releases/${IMMORTALWRT_REF#v}/targets/$board/$subtarget"
-	name="$(curl -fsSL "$base/sha256sums" | sed -n 's/^\([0-9a-f]*\) \*\(llvm-bpf-.*\.tar\.zst\)$/\1 \2/p')"
-	[ -n "$name" ] || { echo "no prebuilt llvm-bpf at $base, building it"; return 0; }
+	name="$(curl -fsSL "$base/sha256sums" | sed -n 's/^\([0-9a-f]*\) \*\(llvm-bpf-.*\.tar\.zst\)$/\1 \2/p')" || name=
+	if [ -z "$name" ]; then
+		echo "::warning::no prebuilt llvm-bpf at $base, LLVM will be built from source (+1-2h)"
+		return 0
+	fi
 	log "prebuilt ${name#* }"
 	curl -fsSL -o "${name#* }" "$base/${name#* }"
 	echo "${name% *}  ${name#* }" | sha256sum -c -
@@ -106,11 +114,14 @@ fetch_prebuilt_llvm_bpf() {
 }
 
 config() {
-	local profile="$1" seed
+	local profile="$1" seed frags
+	# Assigned separately so a die() inside the substitution aborts the script.
+	frags="$(profile_fragments "$profile")"
+	[ -n "$frags" ] || die "profile $profile lists no fragments"
 	cd "$SRC_DIR"
 	seed="$(mktemp)"
-	# shellcheck disable=SC2046
-	cat $(profile_fragments "$profile") > "$seed"
+	# shellcheck disable=SC2086
+	cat $frags > "$seed"
 	if [ -n "${GO_BOOTSTRAP_ROOT:-}" ]; then
 		printf 'CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT="%s"\n# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set\n' \
 			"$GO_BOOTSTRAP_ROOT" >> "$seed"
@@ -152,18 +163,19 @@ download() {
 
 compile() {
 	cd "$SRC_DIR"
-	local id="${BUILD_ID:-tosaki-$(date +%Y%m%d)}"
-	log "compile with $(nproc) jobs, EXTRA_IMAGE_NAME=$id"
-	if ! make -j"$(nproc)" BUILD_LOG=1 EXTRA_IMAGE_NAME="$id"; then
+	log "compile with $(nproc) jobs, EXTRA_IMAGE_NAME=$BUILD_ID"
+	rm -rf bin/targets
+	if ! make -j"$(nproc)" BUILD_LOG=1 EXTRA_IMAGE_NAME="$BUILD_ID"; then
 		# Show the logs of whatever failed instead of re-running serially.
-		local err
-		for err in $(find logs -name error.txt 2>/dev/null); do
-			echo "::group::${err%/error.txt}"
-			cat "$err"
-			find "${err%/error.txt}" -name '*.txt' ! -name 'check-*' ! -name error.txt \
-				-exec tail -n 80 {} +
-			echo "::endgroup::"
-		done
+		# error.txt lines look like "   ERROR: package/feeds/x/y failed to build."
+		local dir
+		cat logs/error.txt logs/*/error.txt 2>/dev/null |
+			sed -n 's/^ *ERROR: \([^ ]*\) .*/\1/p' | sort -u |
+			while read -r dir; do
+				echo "::group::$dir"
+				find "logs/$dir" -maxdepth 2 -name '*.txt' -exec tail -n 80 {} + || true
+				echo "::endgroup::"
+			done || true
 		die "compile failed"
 	fi
 }
@@ -171,9 +183,13 @@ compile() {
 collect() {
 	local profile="$1" tdir device dest f name base ext
 	cd "$SRC_DIR"
-	tdir="$(echo bin/targets/*/*)"
-	[ -d "$tdir" ] || die "no build output in bin/targets"
+	tdir="bin/targets/$(sed -n 's/^CONFIG_TARGET_BOARD="\(.*\)"/\1/p' .config)"
+	tdir="$tdir/$(sed -n 's/^CONFIG_TARGET_SUBTARGET="\(.*\)"/\1/p' .config)"
 	device="$(sed -n 's/^CONFIG_TARGET_PROFILE="DEVICE_\(.*\)"/\1/p' .config)"
+	# check-size only warns and deletes an oversized image, make still succeeds.
+	compgen -G "$tdir/*$BUILD_ID*$device*-sysupgrade.bin" >/dev/null ||
+		compgen -G "$tdir/*$BUILD_ID*$device*-combined*.img.gz" >/dev/null ||
+		die "no flashable image for $device in $tdir (too big for check-size?)"
 	dest="$OUT_DIR/$profile"
 	rm -rf "$dest"; mkdir -p "$dest"
 	log "collect $profile ($device) -> $dest"
@@ -182,7 +198,8 @@ collect() {
 		name="${f##*/}"
 		# Images for this device plus the build metadata; skips other SoCs' bl2.
 		case "$name" in
-		*"$device"*|*.manifest|config.buildinfo|feeds.buildinfo|version.buildinfo) ;;
+		*"$BUILD_ID"*"$device"*|*"$BUILD_ID"*.manifest) ;;
+		config.buildinfo|feeds.buildinfo|version.buildinfo) ;;
 		*) continue ;;
 		esac
 		case "$name" in

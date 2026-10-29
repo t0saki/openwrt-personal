@@ -6,11 +6,15 @@
 
 uci -q get openvpn.myvpn >/dev/null && exit 0
 
-lan_ip="$(uci -q get network.lan.ipaddr)"
+# ipaddr is a list of CIDRs on 25.12 (first one wins); empty on a DHCP LAN.
+set -- $(uci -q get network.lan.ipaddr)
+lan_ip="$1"
 lan_mask="$(uci -q get network.lan.netmask)"
+NETWORK= NETMASK=
 case "$lan_ip" in
-	*/*) eval "$(/bin/ipcalc.sh "$lan_ip")" ;;
-	*) eval "$(/bin/ipcalc.sh "$lan_ip" "${lan_mask:-255.255.255.0}")" ;;
+	"") ;;
+	*/*) eval "$(/bin/ipcalc.sh "$lan_ip" 2>/dev/null)" ;;
+	*) eval "$(/bin/ipcalc.sh "$lan_ip" "${lan_mask:-255.255.255.0}" 2>/dev/null)" ;;
 esac
 lan_ip="${lan_ip%/*}"
 
@@ -37,10 +41,12 @@ uci -q batch <<-EOT
 	set openvpn.myvpn.verb='3'
 	set openvpn.myvpn.status='/var/log/openvpn_status.log'
 	set openvpn.myvpn.log='/tmp/openvpn.log'
-	add_list openvpn.myvpn.push='route $NETWORK $NETMASK'
 	add_list openvpn.myvpn.push='comp-lzo adaptive'
 	add_list openvpn.myvpn.push='redirect-gateway def1 bypass-dhcp'
-	add_list openvpn.myvpn.push='dhcp-option DNS $lan_ip'
-	commit openvpn
 EOT
+if [ -n "$NETWORK" ] && [ -n "$NETMASK" ]; then
+	uci -q add_list openvpn.myvpn.push="route $NETWORK $NETMASK"
+	uci -q add_list openvpn.myvpn.push="dhcp-option DNS $lan_ip"
+fi
+uci -q commit openvpn
 exit 0
