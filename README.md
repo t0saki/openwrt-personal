@@ -1,49 +1,64 @@
-# OpenWRT Personal Build Workflow
+# OpenWrt Personal Build
 
-本项目提供了一种自动化构建 OpenWRT 固件的工作流，用户可以通过修改配置文件和分支选择生成自定义的 OpenWRT 固件。目前该项目构建ImmortalWrt分支，可直接在release下载并遵循当地法律法规使用。
-当前配置支持Cudy TR3000和x86_64的设备。
+用 GitHub Actions 从源码构建个人用 [ImmortalWrt](https://github.com/immortalwrt/immortalwrt) 固件。成品在 [Releases](../../releases) 下载，请遵循当地法律法规使用。
 
-## 分支和配置说明
+当前上游：`v25.12.2`（kernel 6.12，包管理器为 **apk**，不再是 opkg）。
 
-- **分支**: 
-  - `openwrt-24.10`: 24.10的SNAPSHOT分支。
-  - `v24.10.1`: ImmortalWrt的相应Tag。
-  
-- **配置文件**:
-  - `base.config`: 适用于大部分x86设备的配置，包含许多常用插件。默认使用2G分区防止容量不足。
-  - `alderlake.config`: 适用于Alderlake架构（如N100、G8505等12代以后的Intel处理器）构建的配置，使用O2优化，其余配置与base一致。
-  - `tr3000_v1`: 适用于Cudy TR3000的112m大分区版本。请使用对应大分区uboot。
-  - `tr3000_v1_ubootmod`: 适用于Cudy TR3000 ubootmod构建的配置，包含常用插件和RNDIS驱动，理论支持USB分享网络。安装参考[此处](https://github.com/immortalwrt/immortalwrt/commit/51272fcd004955198265f030707aac1dd9794b98)。
+## Profiles
 
-## 如何自定义
+| profile | 设备 | 说明 |
+|---|---|---|
+| `base` | x86_64 | 通用 x86 软路由，rootfs 2 GiB，带 Intel/MT7921/MT7922 WiFi 与 USB 蓝牙驱动 |
+| `alderlake` | x86_64 | `base` + `-O2 -march=alderlake`（只影响 C/C++ 用户态；PVE 虚拟机的 CPU 类型必须设为 `host`） |
+| `tr3000_v1` | Cudy TR3000 v1 | 112M 大分区布局，**必须先刷对应的大分区 U-Boot** |
+| `tr3000_v1_airplay2` | Cudy TR3000 v1 | `tr3000_v1` + AirPlay 2（shairport-sync），默认不构建，可手动触发 |
 
-如果您不需要自定义，可直接在release中下载。
+所有 profile 都内置 Tailscale（`luci-app-tailscale-community`）和 EasyTier（`luci-app-easytier`，不带 web console）。默认 LAN 地址 `192.168.10.10`。
 
-### 1. 修改构建分支和配置
-根据需求，编辑 [`.github/workflows/build-openwrt.yml`](https://github.com/t0saki/openwrt-personal/blob/main/.github/workflows/build-openwrt.yml) 文件。在以下部分指定需要构建的分支和配置文件：
-```yaml
-env:
-  BRANCH: [选择目标分支，例如 openwrt-24.10]
-  CONFIG: [选择配置文件，例如 base.config 或 alderlake.config]
+## 目录结构
+
+```
+build.env          上游版本、LAN IP、第三方包（均 pin 到 commit）——版本只在这里改
+profiles/<name>    一个 profile 由哪些 config 片段组成，按顺序拼接
+configs/*.config   config 片段：common / x86_64 / alderlake / tr3000_v1 / airplay2
+patches/*.patch    对 ImmortalWrt 源码树的补丁（TR3000 112M UBI）
+files/             打进固件的 rootfs overlay（uci-defaults 等）
+scripts/build.sh   本地和 CI 共用的构建脚本
 ```
 
-### 2. 定制配置文件
+config 片段只写**想要的东西**，依赖库、`luci-i18n-*-zh-cn` 之类交给 `make defconfig` 解析。`build.sh config` 会检查片段里每一行在最终 `.config` 里都还在，被 defconfig 静默丢掉（包改名、clone 失败、依赖缺失）时直接报错，不会把缺包的固件发出去。
 
-根据 OpenWRT 或 ImmortalWRT 的官方说明，修改项目根目录中的 *.config 文件以自定义构建内容。例如：
-  - 添加或删除需要的包。
-  - 调整内核模块支持。
-  - 配置网络、存储等功能。
+## 构建
 
+**CI**：push 到 `main`（只在构建相关文件变动时）会构建默认的三个 profile 并发布 Release。Actions → *Build ImmortalWrt* → *Run workflow* 可以手动指定 profile 列表，例如 `["tr3000_v1_airplay2"]`。Release 只从 `main` 发布；其它分支的手动构建只留 7 天的 workflow artifact。某个 profile 失败不影响其它 profile 发布，状态会写进 release notes，失败日志在 artifact `logs-<profile>` 里；只有三个默认 profile 全部成功的构建才会标记为 Latest。
 
-### 3. 触发构建
+**本地**（x86_64 Linux，依赖同 [OpenWrt 构建文档](https://openwrt.org/docs/guide-developer/toolchain/install-buildsystem)）：
 
-推送更改到仓库后，GitHub Actions 将自动触发构建过程并生成固件。
+```sh
+scripts/build.sh all tr3000_v1          # 等价于 prepare / config / download / compile / collect
+ls out/tr3000_v1/
+```
 
-## 注意事项
-  - 配置文件 (*.config) 的修改需要遵循 OpenWRT 或 ImmortalWRT 的配置格式，确保兼容性。
-  - 在构建前，请确认 build-openwrt.yml 文件中的分支和配置文件路径正确无误。
-  - 每次构建的日志和生成的固件可以在 GitHub Actions 的工作流页面中找到。
+## 自定义
 
-## 参考资料  
-  - [OpenWRT 构建文档](https://openwrt.org/docs/guide-developer/toolchain/use-buildsystem)  
-  - [ImmortalWRT 官方文档](https://github.com/immortalwrt/immortalwrt/blob/master/README.md) 
+- 加减软件包：编辑 `configs/` 里对应片段；新机型新建一个片段，再在 `profiles/` 里组合。
+- 升级上游：改 `build.env` 的 `IMMORTALWRT_REF`。
+- 第三方包：在 `build.env` 的 `THIRD_PARTY` 里加一行 `<目录> <git url> <commit>`；如果和 feed 里的包同名，把 feed 目录加进 `OVERRIDE_FEED_DIRS`。
+
+## 注意
+
+- 固件内核是自己编译的，vermagic 和官方不同，**刷机后不能从官方源 `apk add kmod-*`**；需要的内核模块请直接编进固件。每次构建的 packages/kmods 会作为 workflow artifact 保留 7 天，但只能装在同一次构建的固件上。
+- 25.12 改用 apk，从 24.10 升级会丢失用户自行安装的包。
+- TR3000 的 sysupgrade 镜像超过 112M 时上游 `check-size` 会删掉镜像，`build.sh collect` 发现没有可刷写镜像就让该 profile 失败，不会发出空 release。
+
+## 从旧固件（`build-2026*` 及更早）升级
+
+- passwall 去掉了 shadowsocks-rust：保留配置升级后，类型为 SS-Rust 的节点需要改成 Xray 或 sing-box 类型。
+- TR3000 去掉了 frps 和 ngrokc。
+- 旧固件往 `/etc/sysctl.conf` 追加过 `default_qdisc=fq` 和 `bbr` 两行：前者因为内核没有 `sch_fq` 本来就不生效，后者已由 `kmod-tcp-bbr` 自带的 `/etc/sysctl.d/12-tcp-bbr.conf` 提供。保留配置升级时这两行会留着，可以手动删掉。
+
+## 参考
+
+- [OpenWrt build system](https://openwrt.org/docs/guide-developer/toolchain/use-buildsystem)
+- [ImmortalWrt](https://github.com/immortalwrt/immortalwrt)
+- [EasyTier/luci-app-easytier](https://github.com/EasyTier/luci-app-easytier)
