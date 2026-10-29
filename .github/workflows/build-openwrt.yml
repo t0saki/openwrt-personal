@@ -1,309 +1,185 @@
-# 部分步骤借鉴https://github.com/P3TERX/Actions-OpenWrt/blob/main/.github/workflows/openwrt-builder.yml
-
-name: Build OpenWrt Firmware
+name: Build ImmortalWrt
 
 on:
   push:
-    branches:
-      - '*'
+    branches: [main]
+    paths:
+      - build.env
+      - configs/**
+      - profiles/**
+      - patches/**
+      - files/**
+      - scripts/**
+      - .github/workflows/build-openwrt.yml
   workflow_dispatch:
+    inputs:
+      profiles:
+        description: Profiles to build (JSON list, see profiles/)
+        default: '["base", "alderlake", "tr3000_v1"]'
+      release:
+        description: Publish a GitHub release (prerelease when not on main)
+        type: boolean
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
-  UPLOAD_BIN_DIR: false # Keep this if you want the full bin dir as separate artifacts per build
-  UPLOAD_FIRMWARE_ARTIFACT: true # Control uploading firmware artifacts from build jobs
-  UPLOAD_RELEASE: true # Control creating the final combined release
-  TZ: Asia/Shanghai
+  TZ: Asia/Singapore
 
 jobs:
   build:
+    name: build (${{ matrix.profile }})
     runs-on: ubuntu-24.04
     strategy:
+      fail-fast: false
       matrix:
-        branch: [v25.12.1]
-        config: [base.config, alderlake.config, tr3000_v1.config, tr3000_v1_airplay2.config]
-        # Add more branches/configs as needed
-      fail-fast: false # Optional: Allow other jobs to continue if one fails
-    outputs:
-      # Optional: Output status if needed by other jobs, though 'needs' context is usually sufficient
-      status: ${{ steps.compile.outputs.status }}
-      branch: ${{ matrix.branch }}
-      config: ${{ matrix.config }}
-
+        # Keep the default in sync with PROFILES in the release job.
+        profile: ${{ fromJSON(inputs.profiles || '["base", "alderlake", "tr3000_v1"]') }}
+    env:
+      SRC_DIR: ${{ github.workspace }}/immortalwrt
+      OUT_DIR: ${{ github.workspace }}/out
     steps:
-    - name: Checkout your repository
-      uses: actions/checkout@v4 # Updated version
+      - uses: actions/checkout@v7
 
-    - name: Free Disk Space (Ubuntu)
-      uses: jlumbroso/free-disk-space@main
-      with:
-        # this might remove tools that are actually needed,
-        # if set to "true" but frees about 6 GB
-        tool-cache: true
-        
-        # all of these default to true, but feel free to set to
-        # "false" if necessary for your workflow
-        android: true
-        dotnet: true
-        haskell: true
-        large-packages: true
-        docker-images: true
-        swap-storage: true
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@v2.0.0
+        with:
+          tool-cache: true
+          # Keep swap: LTO links can exceed the runner's 16 GB of RAM.
+          swap-storage: false
 
-    # 先激进清理一波，确保起步空间足够
-    - name: Aggressive cleanup (free extra space)
-      run: |
-        echo "Before cleanup:"; df -h
-        sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-                    /opt/hostedtoolcache /usr/local/share/powershell /opt/az \
-                    /usr/local/.ghcup /usr/local/lib/node_modules /usr/share/swift || true
-        docker system prune -af || true
-        sudo apt-get clean
-        sudo rm -rf /var/lib/apt/lists/*
-        echo "After cleanup:"; df -h
-
-    - name: Set up the build environment
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential clang flex bison g++ gawk \
-          gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev \
-          python3-setuptools rsync swig unzip zlib1g-dev file wget ccache
-        echo "CONFIG_CCACHE=y" >> immortalwrt/.config || true
-        echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
-        echo 'export CC="ccache gcc"' >> $GITHUB_ENV
-        echo 'export CXX="ccache g++"' >> $GITHUB_ENV
-
-    - name: Prepare build disk
-      run: |
-        mkdir -p "$GITHUB_WORKSPACE/immortalwrt"
-    
-        if mountpoint -q /mnt; then
-          sudo install -d -o "$USER" -g "$(id -gn)" /mnt/openwrt-build
-          sudo mount --bind /mnt/openwrt-build "$GITHUB_WORKSPACE/immortalwrt"
-        fi
-    
-        df -h "$GITHUB_WORKSPACE/immortalwrt"
-    
-    - name: Clone ImmortalWrt source code
-      run: |
-        echo "Cloning branch ${{ matrix.branch }}"
-        git clone -b ${{ matrix.branch }} \
-          --single-branch --filter=blob:none \
-          https://github.com/immortalwrt/immortalwrt \
-          immortalwrt
-        cd immortalwrt
-
-    - name: Update feeds
-      run: cd immortalwrt && ./scripts/feeds update -a
-
-    - name: Install feeds
-      run: cd immortalwrt && ./scripts/feeds install -a
-
-    - name: Copy custom .config and scripts
-      run: |
-        echo "Using config: ${{ matrix.config }}"
-        cp "${{ github.workspace }}/${{ matrix.config }}" immortalwrt/.config
-
-        # # 25.12 package set compatibility: avoid file conflicts during package/install
-        # if [ "${{ matrix.branch }}" = "openwrt-25.12" ]; then
-        #   sed -i '/^CONFIG_PACKAGE_luci-app-mosdns=/d' immortalwrt/.config
-        #   sed -i '/^CONFIG_PACKAGE_luci-app-openvpn-server=/d' immortalwrt/.config
-        #   echo '# CONFIG_PACKAGE_luci-app-mosdns is not set' >> immortalwrt/.config
-        #   echo '# CONFIG_PACKAGE_luci-app-openvpn-server is not set' >> immortalwrt/.config
-        # fi
-
-        cp "${{ github.workspace }}/build.sh" immortalwrt/build.sh || true # Allow scripts to be optional
-        cp "${{ github.workspace }}/diy-part1.sh" immortalwrt/diy-part1.sh || true
-        cp "${{ github.workspace }}/diy-part2.sh" immortalwrt/diy-part2.sh || true
-        cp "${{ github.workspace }}/999-dts-cudy-tr3000-v1-modification.patch" immortalwrt/999-dts-cudy-tr3000-v1-modification.patch || true
-
-    - name: Run custom script part 1 (if exists)
-      if: success() && hashFiles('immortalwrt/diy-part1.sh') != ''
-      run: |
-        cd immortalwrt
-        chmod +x diy-part1.sh
-        ./diy-part1.sh
-
-    - name: Download package
-      id: package
-      run: |
-        cd immortalwrt
-        make defconfig
-        echo "--- .config content for ${{ matrix.branch }} / ${{ matrix.config }} ---"
-        cat .config || true # Display config, continue if it fails
-        echo "-------------------------------------------------------------------"
-        make download -j$(nproc) || make download -j1 V=s
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
-
-    - name: Run custom script part 2 (if exists)
-      if: success() && hashFiles('immortalwrt/diy-part2.sh') != ''
-      run: |
-        cd immortalwrt
-        chmod +x diy-part2.sh
-        ./diy-part2.sh
-        make defconfig # Re-run defconfig in case part2 modified anything affecting config
-
-    - name: Compile the firmware
-      id: compile
-      run: |
-        cd immortalwrt
-
-        # Workaround: intel-microcode parallel build may fail with existing intel-ucode-ipkg dir
-        rm -rf build_dir/target-*/intel-microcode-*/intel-ucode-ipkg || true
-
-        MY_PERSONAL_ID="tosaki"
-        BUILD_DATE=$(date +"%Y%m%d")
-        CUSTOM_EXTRA_NAME="${MY_PERSONAL_ID}-${BUILD_DATE}"
-        
-        echo -e "$(nproc) thread compile for ${{ matrix.branch }} / ${{ matrix.config }}"
-        
-        make -j$(nproc) EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}" || { \
-          rm -rf build_dir/target-*/intel-microcode-*/*ipkg* tmp pkginfo 2>/dev/null || true; \
-          make package/firmware/intel-microcode/clean V=s || true; \
-          make -j1 V=s EXTRA_IMAGE_NAME="${CUSTOM_EXTRA_NAME}"; \
-        }
-        
-        echo "status=success" >> $GITHUB_OUTPUT
-        
-        # Keep env vars for potential use in renaming or artifact names
-        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
-        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=$(cat DEVICE_NAME)" >> $GITHUB_ENV || echo "DEVICE_NAME=unknown" >> $GITHUB_ENV
-        echo "FILE_DATE=$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
-        echo "BRANCH_NAME=${{ matrix.branch }}" >> $GITHUB_ENV
-        echo "CONFIG_NAME=${{ matrix.config }}" >> $GITHUB_ENV
-        echo "SHORT_CONFIG_NAME=$(basename ${{ matrix.config }} .config)" >> $GITHUB_ENV
-
-    - name: Check space usage
-      if: success() && !cancelled()
-      run: df -hT
-
-    - name: Upload bin directory (Optional Artifact per Build)
-      uses: actions/upload-artifact@v4 # Updated version
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
-      with:
-        name: ImmortalWrt_bin_${{ env.DEVICE_NAME }}_${{ env.BRANCH_NAME }}_${{ env.SHORT_CONFIG_NAME }}_${{ env.FILE_DATE }}
-        path: immortalwrt/bin
-
-    - name: Organize and Rename Firmware Files
-      id: organize
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE_ARTIFACT == 'true' && !cancelled()
-      run: |
-        cd immortalwrt/bin/targets/*/*
-        rm -rf packages kmods sha256sums version.buildinfo profiles.json *.manifest config.buildinfo feeds.buildinfo # Clean up non-essential files
-        # Create a directory for renamed files to avoid issues with path lengths or complex names during upload
-        mkdir -p firmware_release
-        ls -l # List files before renaming
-        shopt -s extglob # Enable extended globbing
-        for file in !(firmware_release); do
-          if [ -f "$file" ]; then
-            # Construct new name: <original_name>_<branch>_<config_base_name>.<extension>
-            filename=$(basename "$file")
-            extension="${filename##*.}"
-            base="${filename%.*}"
-            # Handle multi-part extensions like .img.gz
-            if [[ "$filename" == *".img.gz" ]]; then
-                extension="img.gz"
-                base="${filename%.img.gz}"
-            elif [[ "$filename" == *".tar.gz" ]]; then
-                extension="tar.gz"
-                base="${filename%.tar.gz}"
-            fi
-            new_name="${base}_${{ env.BRANCH_NAME }}_${{ env.SHORT_CONFIG_NAME }}.${extension}"
-            echo "Renaming '$file' to 'firmware_release/$new_name'"
-            mv "$file" "firmware_release/$new_name"
+      - name: Build on the large /mnt disk
+        run: |
+          mkdir -p "$SRC_DIR"
+          if mountpoint -q /mnt; then
+            sudo install -d -o "$USER" -g "$(id -gn)" /mnt/immortalwrt
+            sudo mount --bind /mnt/immortalwrt "$SRC_DIR"
           fi
-        done
-        ls -l firmware_release # List files after renaming
-        echo "FIRMWARE_PATH=$PWD/firmware_release" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
+          df -h "$SRC_DIR"
 
-    - name: Upload Firmware Artifact (One per Build Job)
-      uses: actions/upload-artifact@v4
-      if: steps.organize.outputs.status == 'success' && !cancelled()
-      with:
-        # Artifact name includes matrix params for easier identification if needed
-        name: firmware_${{ env.BRANCH_NAME }}_${{ env.SHORT_CONFIG_NAME }}
-        path: ${{ env.FIRMWARE_PATH }}/* # Upload only the renamed files
-        retention-days: 5 # Adjust retention as needed
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev \
+            python3-setuptools rsync swig unzip zlib1g-dev file wget zstd
+
+      # Bootstraps host Go directly instead of building the go1.4 -> 1.26 chain.
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+          cache: false
+
+      - name: Prepare source
+        run: scripts/build.sh prepare
+
+      - name: Configure
+        run: GO_BOOTSTRAP_ROOT="$(go env GOROOT)" scripts/build.sh config ${{ matrix.profile }}
+
+      - name: Restore download cache
+        uses: actions/cache@v6
+        with:
+          path: immortalwrt/dl
+          key: dl-${{ hashFiles('build.env') }}-${{ matrix.profile }}-${{ github.run_id }}
+          restore-keys: |
+            dl-${{ hashFiles('build.env') }}-${{ matrix.profile }}-
+            dl-${{ hashFiles('build.env') }}-
+
+      - name: Download sources
+        run: scripts/build.sh download
+
+      - name: Compile
+        run: |
+          BUILD_ID="tosaki-$(date +%Y%m%d)" scripts/build.sh compile
+          df -h "$SRC_DIR"
+
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-${{ matrix.profile }}
+          path: |
+            immortalwrt/logs/**/*.txt
+            !immortalwrt/logs/**/check-*.txt
+            immortalwrt/.config
+          retention-days: 7
+
+      - name: Collect firmware
+        run: scripts/build.sh collect ${{ matrix.profile }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: firmware-${{ matrix.profile }}
+          path: out/${{ matrix.profile }}/
+          retention-days: 7
+
+      # Packages and kmods are only installable on firmware from this very
+      # build (custom kernel vermagic, per-build signing key).
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages-${{ matrix.profile }}
+          path: |
+            immortalwrt/bin/packages/
+            immortalwrt/bin/targets/*/*/packages/
+          retention-days: 7
 
   release:
-    name: Create Release
-    # This job runs only after ALL jobs in the build matrix succeed
     needs: build
-    runs-on: ubuntu-latest
+    # Publish whatever legs succeeded; a failed leg shows up in the notes.
+    if: ${{ !cancelled() && (github.event_name == 'push' || inputs.release) }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
-      - name: Generate Release Tag and Name
-        id: tag
-        run: |
-          RELEASE_TAG="build-$(date +"%Y%m%d%H%M")"
-          RELEASE_NAME="Firmware Build $(date +"%Y-%m-%d %H:%M")"
-          echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
-          echo "release_name=${RELEASE_NAME}" >> $GITHUB_OUTPUT
-          echo "Release Tag: ${RELEASE_TAG}"
-          echo "Release Name: ${RELEASE_NAME}"
+      - uses: actions/checkout@v7
 
-      - name: Download all firmware artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
-          # Download all artifacts produced by this workflow run
-          # They will be placed in subdirectories named after the artifact name
-          path: firmware-artifacts # All artifacts will be downloaded here
+          pattern: firmware-*
+          path: firmware
 
-      - name: List downloaded files structure
-        run: |
-          echo "Downloaded artifacts structure:"
-          ls -R firmware-artifacts
-
-      - name: Prepare Release Files
-        id: prepare_files
-        run: |
-          mkdir -p release_payload
-          # Find all files within the downloaded artifact subdirectories and move them to a single directory
-          find firmware-artifacts -mindepth 2 -type f -exec mv {} release_payload/ \;
-          echo "Files prepared for release in release_payload:"
-          ls -l release_payload
-          echo "UPLOAD_PATH=release_payload" >> $GITHUB_ENV
-
-      - name: Create Release Body
-        run: |
-          echo "Automated firmware build for ImmortalWrt." > release.txt
-          echo "" >> release.txt
-          echo "**Included Configurations:**" >> release.txt
-          # You might want to dynamically list included builds here if needed
-          # For now, just a static message
-          # Example: Iterate over needs context (complex, maybe just static list is fine)
-          # for config in ${{ join(matrix.config, ', ') }}; do echo "- Branch: ${{ matrix.branch }}, Config: $config"; done >> release.txt
-          echo "Files included are named with branch and config identifiers." >> release.txt
-
-      - name: Upload Firmware to Release
-        uses: softprops/action-gh-release@v2
+      - name: Assemble release
+        id: meta
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROFILES: ${{ inputs.profiles || '["base", "alderlake", "tr3000_v1"]' }}
+        run: |
+          [ -n "$(ls firmware 2>/dev/null)" ] || { echo "no firmware was built"; exit 1; }
+          . ./build.env
+
+          {
+            echo "ImmortalWrt \`$IMMORTALWRT_REF\` from \`${GITHUB_SHA::7}\`, default LAN \`$LAN_IP\`."
+            echo
+            echo "| profile | fragments | status |"
+            echo "|---|---|---|"
+            for p in $(jq -r '.[]' <<< "$PROFILES"); do
+              if [ -d "firmware/firmware-$p" ]; then s=ok; else s=**failed**; fi
+              echo "| $p | $(paste -sd' ' "profiles/$p") | $s |"
+            done
+            echo
+            echo "Third-party packages:"
+            echo
+            while read -r dir url commit; do
+              [ -n "$dir" ] && echo "- [$dir]($url) \`${commit::12}\`"
+            done <<< "$THIRD_PARTY"
+          } > notes.md
+          cat notes.md
+
+          mkdir payload
+          find firmware -type f -exec mv -t payload {} +
+          (cd payload && sha256sum * > sha256sums.txt)
+          echo "tag=build-$(date +%Y%m%d%H%M)" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.tag.outputs.release_tag }}
-          name: ${{ steps.tag.outputs.release_name }}
-          body_path: release.txt
-          # Use wildcard to upload all files from the prepared directory
-          files: ${{ env.UPLOAD_PATH }}/*
-          # Set draft: false and prerelease: false if you want it published immediately
-          # draft: true
-          # prerelease: true
-
-    # Optional: Cleanup steps (uncomment if needed)
-    # - name: Delete workflow runs
-    #   uses: Mattraks/delete-workflow-runs@main
-    #   if: always() # Run even if release fails
-    #   with:
-    #     token: ${{ secrets.GITHUB_TOKEN }}
-    #     repository: ${{ github.repository }}
-    #     retain_days: 7 # Keep runs for 7 days
-    #     keep_minimum_runs: 3 # Keep at least 3 most recent runs
-
-    # - name: Remove old Releases
-    #   uses: dev-drprasad/delete-older-releases@master
-    #   if: always() # Run even if release fails
-    #   with:
-    #     keep_latest: 3 # Keep latest 3 releases
-    #     delete_tags: true
-    #   env:
-    #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: Firmware ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          body_path: notes.md
+          files: payload/*
+          prerelease: ${{ github.ref != 'refs/heads/main' }}
+          make_latest: ${{ github.ref == 'refs/heads/main' }}

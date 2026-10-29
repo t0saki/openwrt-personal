@@ -1,0 +1,46 @@
+#!/bin/sh
+# luci-app-openvpn-server ships /etc/config/openvpn, which collides with the
+# file owned by openvpn-openssl under apk, so the build drops it and the
+# 'myvpn' server section is recreated here instead. Runs before the app's own
+# uci-defaults ("openvpn"), which reads myvpn.port for its firewall rule.
+
+uci -q get openvpn.myvpn >/dev/null && exit 0
+
+lan_ip="$(uci -q get network.lan.ipaddr)"
+lan_mask="$(uci -q get network.lan.netmask)"
+case "$lan_ip" in
+	*/*) eval "$(/bin/ipcalc.sh "$lan_ip")" ;;
+	*) eval "$(/bin/ipcalc.sh "$lan_ip" "${lan_mask:-255.255.255.0}")" ;;
+esac
+lan_ip="${lan_ip%/*}"
+
+uci -q batch <<-EOT
+	set openvpn.myvpn=openvpn
+	set openvpn.myvpn.enabled='0'
+	set openvpn.myvpn.proto='tcp-server'
+	set openvpn.myvpn.port='1194'
+	set openvpn.myvpn.ddns='example.com'
+	set openvpn.myvpn.dev='tun'
+	set openvpn.myvpn.topology='subnet'
+	set openvpn.myvpn.server='10.8.0.0 255.255.255.0'
+	set openvpn.myvpn.comp_lzo='adaptive'
+	set openvpn.myvpn.ca='/etc/openvpn/pki/ca.crt'
+	set openvpn.myvpn.dh='/etc/openvpn/pki/dh.pem'
+	set openvpn.myvpn.cert='/etc/openvpn/pki/server.crt'
+	set openvpn.myvpn.key='/etc/openvpn/pki/server.key'
+	set openvpn.myvpn.persist_key='1'
+	set openvpn.myvpn.persist_tun='1'
+	set openvpn.myvpn.user='nobody'
+	set openvpn.myvpn.group='nogroup'
+	set openvpn.myvpn.max_clients='10'
+	set openvpn.myvpn.keepalive='10 120'
+	set openvpn.myvpn.verb='3'
+	set openvpn.myvpn.status='/var/log/openvpn_status.log'
+	set openvpn.myvpn.log='/tmp/openvpn.log'
+	add_list openvpn.myvpn.push='route $NETWORK $NETMASK'
+	add_list openvpn.myvpn.push='comp-lzo adaptive'
+	add_list openvpn.myvpn.push='redirect-gateway def1 bypass-dhcp'
+	add_list openvpn.myvpn.push='dhcp-option DNS $lan_ip'
+	commit openvpn
+EOT
+exit 0
