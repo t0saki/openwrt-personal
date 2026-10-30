@@ -1,0 +1,25 @@
+# Nginx Proxy Manager on the router. Copy to /mnt/<disk>/npm/ and run
+# `docker compose up -d` there; README "认证网关" has the full order (move
+# uhttpd off :80 and lock :81/:3000 to one admin host first, open WAN 80/443
+# last).
+#
+# Host networking: NPM sees real v4/v6 client addresses (no docker-proxy, no
+# DNAT, no hairpin SNAT) and reaches Authelia on 127.0.0.1:9091. It binds
+# :80/:443 for proxy hosts, :81 (admin UI) and :3000 (API) on every address.
+# There is no default account: whoever first opens the setup wizard becomes
+# the admin, and fw4 only keeps WAN out, not LAN or VPN zones. Hence the fw4
+# rule from the README before `up`, and setup right after it. No
+# INITIAL_ADMIN_PASSWORD here: it would sit in this file and NPM's log.
+# Forward hosts: use IPs, not names. The container resolves through the
+# router's DNS, i.e. OpenClash fake-ip.
+services:
+  npm:
+    image: jc21/nginx-proxy-manager:2.16.0
+    container_name: npm
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      TZ: Asia/Singapore
+    volumes:
+      - ./data:/data
+      - ./letsencrypt:/etc/letsencrypt

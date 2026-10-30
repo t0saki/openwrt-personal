@@ -1,0 +1,102 @@
+diff --git a/feeds/packages/utils/dockerd/Makefile b/feeds/packages/utils/dockerd/Makefile
+index 884fb36..329bb9a 100644
+--- a/feeds/packages/utils/dockerd/Makefile
++++ b/feeds/packages/utils/dockerd/Makefile
+@@ -51,7 +51,11 @@ define Package/dockerd
+     +kmod-veth \
+     +tini \
+     +uci-firewall
+-  USERID:=docker:docker
++  # Fixed ids (dockerd-router): a dynamic gid is numbered per image, and a
++  # sysupgrade restoring an older /etc/group only appends missing names, so
++  # docker could share the gid of e.g. microsocks, whose process would then
++  # open /var/run/docker.sock (root:docker 0660), i.e. be root.
++  USERID:=docker=2375:docker=2375
+   MENU:=1
+ endef
+ 
+diff --git a/feeds/packages/utils/dockerd/files/dockerd.init b/feeds/packages/utils/dockerd/files/dockerd.init
+index 8835a6d..749b124 100755
+--- a/feeds/packages/utils/dockerd/files/dockerd.init
++++ b/feeds/packages/utils/dockerd/files/dockerd.init
+@@ -40,7 +40,9 @@ find_network_device() {
+ }
+ 
+ boot() {
+-	uciadd
++	# No uciadd: it commits a docker interface, bridge and all-ACCEPT zone to
++	# network/firewall, and its reload_config reloads fw4 (dropping e.g.
++	# OpenClash rules) on every boot. Run it by hand if a bridge is wanted.
+ 	rc_procd start_service
+ }
+ 
+@@ -225,10 +227,48 @@ process_config() {
+ 	[ "${iptables}" -eq "1" ] && config_foreach iptables_add_blocking_rule firewall
+ }
+ 
++# Filesystem type of the mount holding $1, or of its nearest existing parent
++# since dockerd creates data-root itself. Longest mount point wins, and the
++# later of two equal ones (stacked mounts). busybox stat/df -T are not built.
++mount_fstype() {
++	local dir="${1%/}"
++
++	while [ -n "${dir}" ] && [ ! -d "${dir}" ]; do
++		dir="${dir%/*}"
++	done
++	dir="$(readlink -f "${dir:-/}")"
++
++	awk -v d="${dir}" '
++		{ m = $2; gsub(/\\040/, " ", m); p = (m == "/") ? "/" : m "/" }
++		(d == m || index(d "/", p) == 1) && length(m) >= best { best = length(m); t = $3 }
++		END { print t }
++	' /proc/mounts
++}
++
++# Refuse to start with data-root on the squashfs overlay or in RAM: images
++# would fill rootfs_data or vanish on reboot, and overlay2 cannot stack on
++# overlayfs. Typical cause is the /mnt disk not being mounted (yet).
++check_data_root() {
++	local root fstype
++
++	[ -n "${DOCKERD_CONF}" ] && root="$(jsonfilter -i "${DOCKERD_CONF}" -e '@["data-root"]' 2>/dev/null)"
++	root="${root:-/var/lib/docker}"
++	fstype="$(mount_fstype "${root}")"
++
++	case "${fstype}" in
++	""|overlay|tmpfs|ramfs|rootfs|squashfs|jffs2|ubifs)
++		logger -t "dockerd-init" -p err "Refusing to start: data-root '${root}' is on '${fstype:-unknown}', mount a disk there first"
++		echo "dockerd: data-root '${root}' is on '${fstype:-unknown}', not starting" >&2
++		return 1
++		;;
++	esac
++}
++
+ start_service() {
+ 	local nofile=$(cat /proc/sys/fs/nr_open)
+ 
+ 	process_config
++	check_data_root || return 1
+ 
+ 	procd_open_instance
+ 	procd_set_param stderr 1
+diff --git a/feeds/packages/utils/dockerd/files/etc/config/dockerd b/feeds/packages/utils/dockerd/files/etc/config/dockerd
+index e3fde7c..0d73d42 100644
+--- a/feeds/packages/utils/dockerd/files/etc/config/dockerd
++++ b/feeds/packages/utils/dockerd/files/etc/config/dockerd
+@@ -6,11 +6,13 @@
+ # device
+ 
+ config globals 'globals'
+-#	option alt_config_file '/etc/docker/daemon.json'
+-	option data_root '/opt/docker/'
++# Router-safe /etc/docker/daemon.json from dockerd-router (bridge none, no
++# iptables). While that file exists, every other option here is ignored.
++	option alt_config_file '/etc/docker/daemon.json'
++	option data_root '/mnt/docker/'
+ #	option log_driver 'local'
+ 	option log_level 'warn'
+-	option iptables '1'
++	option iptables '0'
+ #	list hosts 'unix:///var/run/docker.sock'
+ #	option bip '172.18.0.1/24'
+ #	option fixed_cidr '172.17.0.0/16'

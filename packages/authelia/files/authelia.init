@@ -1,0 +1,174 @@
+#!/bin/sh /etc/rc.common
+# Enabled in rc.d but idle until 'uci set authelia.main.enabled=1': the
+# opt-in then lives in a conffile and survives sysupgrade, and an untouched
+# install never respawn-loops on a missing config.
+
+START=79
+USE_PROCD=1
+
+PROG=/usr/bin/authelia
+DIR=/etc/authelia
+SECRETS=$DIR/secrets
+
+err() {
+	logger -t authelia -p daemon.err "$*"
+	echo "authelia: $*" >&2
+}
+
+# One random 64-character secret, written once and never replaced: the
+# storage key encrypts passkeys/TOTP in the database, a new one orphans them.
+make_secret() {
+	local f="$SECRETS/$1" v
+
+	[ -s "$f" ] && return 0
+	(
+		umask 077
+		tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64 >"$f.new"
+	)
+	v="$(cat "$f.new" 2>/dev/null)"
+	[ "${#v}" -eq 64 ] || { rm -f "$f.new"; return 1; }
+	mv "$f.new" "$f"
+}
+
+# True if name $2 exists in passwd/group file $1 and no other entry has its id.
+id_unique() {
+	awk -F: -v n="$2" '
+		$1 == n { id = $3 }
+		{ c[$3]++ }
+		END { exit !(id != "" && c[id] == 1) }
+	' "$1"
+}
+
+# "<fstype> <mount point>" of the mount holding existing path $1. Longest
+# mount point wins, the later of two equal ones (stacked mounts).
+mount_of() {
+	awk -v d="$1" '
+		{ m = $2; gsub(/\\040/, " ", m); p = (m == "/") ? "/" : m "/" }
+		(d == m || index(d "/", p) == 1) && length(m) >= best { best = length(m); r = $3 " " m }
+		END { print r }
+	' /proc/mounts
+}
+
+load_config() {
+	config_load authelia
+	config_get_bool enabled main enabled 0
+	config_get config main config "$DIR/configuration.yml"
+	config_get storage main storage "$DIR/db/db.sqlite3"
+	config_get memlimit main memlimit 96MiB
+}
+
+# User, secrets, storage dir and ownership; non-zero (and logged) if
+# Authelia must not start.
+prepare() {
+	local sdir="${storage%/*}" s m mnt
+
+	if [ ! -f "$config" ]; then
+		err "$config missing, see /usr/share/authelia"
+		return 1
+	fi
+
+	# procd silently runs as root when the user is unknown, and an account
+	# sharing the uid/gid could read the secrets. The ids are fixed in the
+	# package; a restored /etc/passwd normally gets them appended at boot.
+	{ user_exists authelia && group_exists authelia; } || add_group_and_user authelia
+	if ! id_unique /etc/passwd authelia || ! id_unique /etc/group authelia; then
+		err "user/group authelia missing or sharing its id with another entry in /etc/passwd or /etc/group, not starting"
+		return 1
+	fi
+
+	case "$sdir" in
+	"$DIR"|"$SECRETS"|"$SECRETS"/*)
+		err "storage $storage must be in a directory of its own, not starting"
+		return 1
+		;;
+	"$DIR"/*)
+		# The default: on the overlay, part of the sysupgrade backup.
+		mkdir -p "$sdir" || { err "cannot create $sdir"; return 1; }
+		;;
+	*)
+		# Elsewhere only in an existing directory on a mounted disk. An
+		# unmounted disk leaves its mount point behind on the overlay, and
+		# starting there would silently begin with an empty database.
+		if [ ! -d "$sdir" ]; then
+			err "storage dir $sdir missing (disk not mounted?), not starting"
+			return 1
+		fi
+		sdir="$(readlink -f "$sdir")"
+		m="$(mount_of "$sdir")"
+		mnt="${m#* }"
+		case "${m%% *}" in
+		""|overlay|tmpfs|ramfs|rootfs|squashfs|jffs2|ubifs)
+			err "storage dir $sdir is on '${m%% *}', not a disk (not mounted?), not starting"
+			return 1
+			;;
+		esac
+		if [ "$sdir" = "$mnt" ]; then
+			err "storage dir $sdir is the mount point itself, use a directory on the disk"
+			return 1
+		fi
+		;;
+	esac
+
+	if [ -e "$storage" ] && [ ! -s "$SECRETS/storage" ]; then
+		err "$storage exists but $SECRETS/storage is gone: restore it, a new key cannot read the database"
+		return 1
+	fi
+
+	# Root owns the config dir and the secrets, authelia may only read them,
+	# so it cannot plant symlinks where root later chowns. It writes nothing
+	# but the storage dir; -h there: busybox chown follows symlinks otherwise.
+	mkdir -p "$SECRETS" &&
+	chown -h root:authelia "$DIR" "$SECRETS" &&
+	chmod 0750 "$DIR" "$SECRETS" || { err "cannot set up $SECRETS"; return 1; }
+	for s in storage session jwt; do
+		make_secret "$s" &&
+		chown -h root:authelia "$SECRETS/$s" &&
+		chmod 0640 "$SECRETS/$s" || { err "cannot write $SECRETS/$s"; return 1; }
+	done
+	chown -R -h authelia:authelia "$sdir" &&
+	chmod 0700 "$sdir" || { err "cannot hand $sdir to authelia"; return 1; }
+}
+
+start_service() {
+	local enabled config storage memlimit
+
+	load_config
+	[ "$enabled" = 1 ] || return 0
+	prepare || return 1
+
+	procd_open_instance
+	procd_set_param command "$PROG" --config "$config"
+	# *_FILE: secrets never appear in the config or the process list.
+	# Setting one in configuration.yml as well makes Authelia refuse to start.
+	procd_set_param env \
+		AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE="$SECRETS/storage" \
+		AUTHELIA_SESSION_SECRET_FILE="$SECRETS/session" \
+		AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE="$SECRETS/jwt" \
+		AUTHELIA_STORAGE_LOCAL_PATH="$storage" \
+		GOMEMLIMIT="$memlimit"
+	procd_set_param user authelia
+	procd_set_param group authelia
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param respawn
+	# No reload signal: a changed config means a restart.
+	procd_set_param file "$config"
+	procd_close_instance
+}
+
+service_triggers() {
+	procd_add_reload_trigger authelia
+}
+
+extra_command "check" "Validate the configuration as the service would load it"
+check() {
+	local enabled config storage memlimit
+
+	load_config
+	prepare || return 1
+	AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE="$SECRETS/storage" \
+	AUTHELIA_SESSION_SECRET_FILE="$SECRETS/session" \
+	AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE="$SECRETS/jwt" \
+	AUTHELIA_STORAGE_LOCAL_PATH="$storage" \
+		"$PROG" config validate --config "$config"
+}

@@ -1,0 +1,22 @@
+#!/bin/sh
+# nginx-ssl-util ships '_lan' (443 ssl, self-signed cert plus a yearly
+# crontab line) and '_redirect2ssl' (:80, already held by uhttpd). Drop both
+# and render nothing from UCI, so /etc/nginx/nginx.conf is used. Only while
+# everything is still as in /rom: a config restored by sysupgrade (changed
+# /etc/config/nginx, or own conf.d files such as *.locations hung off '_lan')
+# is someone's working setup and left alone. nginx itself has no rc.d link in
+# the image (DISABLED_SERVICES).
+
+cmp -s /etc/config/nginx /rom/etc/config/nginx || exit 0
+for f in /etc/nginx/conf.d/*; do
+	[ -e "$f" ] || continue
+	cmp -s "$f" "/rom$f" || exit 0
+done
+
+uci -q batch <<-EOT
+	delete nginx._lan
+	delete nginx._redirect2ssl
+	set nginx.global.uci_enable='false'
+	commit nginx
+EOT
+exit 0
