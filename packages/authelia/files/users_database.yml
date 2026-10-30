@@ -1,0 +1,25 @@
+# Authelia file backend: copy to /etc/authelia/users_database.yml.
+#
+# Rename REPLACE_ME to a username that is not easy to guess (not admin): the
+# portal is public, every password attempt for an existing user costs a
+# 64 MiB argon2 hash, and anyone knowing the name can keep it banned
+# (regulation is per user).
+#
+# The password below is a deliberate non-digest: Authelia refuses to start
+# ("error occurred decoding the password hash for 'REPLACE_ME'") until it is
+# replaced, so an untouched copy can never be logged into. Generate a real
+# one on the router (prompts for the password, nothing lands in the shell
+# history or the process list):
+#   authelia crypto hash generate argon2 --config /etc/authelia/configuration.yml
+# paste the part after "Digest: " (starts with $argon2id$), then set
+# disabled: false.
+---
+users:
+  REPLACE_ME:
+    disabled: true
+    displayname: 'Admin'
+    password: 'REPLACE_WITH_ARGON2ID_DIGEST'
+    email: 'admin@example.com'
+    groups:
+      - 'admins'
+...

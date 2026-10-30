@@ -1,0 +1,14 @@
+{
+	"data-root": "/mnt/docker",
+	"log-level": "warn",
+	"log-driver": "local",
+	"log-opts": {
+		"max-size": "10m",
+		"max-file": "3"
+	},
+	"bridge": "none",
+	"iptables": false,
+	"ip6tables": false,
+	"ip-forward": false,
+	"ip-forward-no-drop": true
+}

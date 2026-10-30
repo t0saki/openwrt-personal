@@ -1,0 +1,140 @@
+# Authelia 4.39 example for a router-hosted forward-auth gateway.
+# Copy to /etc/authelia/configuration.yml and replace home.example.com (a
+# subdomain only this router's services live under) and auth.home.example.com;
+# everything else works as-is with the init script.
+#
+# No secrets in here. /etc/init.d/authelia generates them into
+# /etc/authelia/secrets and passes them as *_FILE (Authelia refuses to start
+# if a secret is set both here and via *_FILE):
+#   AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE
+#   AUTHELIA_SESSION_SECRET_FILE
+#   AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE
+#
+# Check with:  /etc/init.d/authelia check
+---
+server:
+  # Loopback only: nginx/NPM on the router is the sole client (NPM therefore
+  # needs network_mode: host).
+  address: 'tcp://127.0.0.1:9091/'
+  endpoints:
+    # Defining authz replaces the four default endpoints, so only the one the
+    # nginx snippets use is exposed. CookieSession only: the default
+    # HeaderAuthorization strategy would consume backends' own Authorization
+    # headers (Basic/Bearer for WebDAV, APIs, ...) and open password-only
+    # access paths.
+    authz:
+      auth-request:
+        implementation: 'AuthRequest'
+        authn_strategies:
+          - name: 'CookieSession'
+
+log:
+  # stdout goes to procd -> logd:  logread -e authelia
+  level: 'info'
+  format: 'text'
+
+# The startup clock check aborts only when the NTP server answers AND the
+# clock is off; boot can race sysntpd, so log instead of crash-looping.
+ntp:
+  disable_failure: true
+
+totp:
+  # Fallback second factor (authenticator app) when no passkey is at hand.
+  issuer: 'home.example.com'
+
+webauthn:
+  disable: false
+  display_name: 'Home Gateway'
+  # Passkey sign-in on the first screen instead of username + password.
+  enable_passkey_login: true
+  # A passkey that reports user verification (PIN/biometric) satisfies
+  # two_factor on its own. Experimental: upstream will replace it with custom
+  # policies and this key will then FAIL STARTUP, check the release notes
+  # before bumping packages/authelia.
+  experimental_enable_passkey_uv_two_factors: true
+  selection_criteria:
+    # Passkey login needs a discoverable (resident) credential.
+    discoverability: 'required'
+    # UV is what makes the one-tap passkey count as two factors.
+    user_verification: 'required'
+
+identity_validation:
+  # Registering a passkey/TOTP needs an elevated session: Authelia sends a
+  # one-time code through the notifier, read it on the router:
+  #   cat /tmp/authelia/notification.txt
+  elevated_session:
+    code_lifespan: '5 minutes'
+    elevation_lifespan: '10 minutes'
+
+authentication_backend:
+  # No SMTP, so no self-service reset or change from the internet. Change a
+  # password by editing users_database.yml on the router.
+  password_reset:
+    disable: true
+  password_change:
+    disable: true
+  file:
+    path: '/etc/authelia/users_database.yml'
+    watch: false
+    password:
+      # Upstream defaults (RFC 9106 second recommendation). Only affects new
+      # hashes generated with --config pointing here; existing digests carry
+      # their own parameters. 64 MiB per concurrent password login.
+      algorithm: 'argon2'
+      argon2:
+        variant: 'argon2id'
+        iterations: 3
+        memory: 65536
+        parallelism: 4
+        key_length: 32
+        salt_length: 16
+
+access_control:
+  # Outside the cookie domain everything is denied; inside it every request
+  # needs two factors. The LAN bypass happens in nginx before Authelia is
+  # asked, so there are deliberately no `networks` rules: Authelia only sees
+  # the address nginx forwards.
+  default_policy: 'deny'
+  rules:
+    - domain:
+        - 'home.example.com'
+        - '*.home.example.com'
+      policy: 'two_factor'
+
+session:
+  # In-memory sessions: a restart only forces a new login.
+  cookies:
+    # The browser sends this cookie to the domain and every subdomain of it,
+    # and whoever receives it can replay the session. So not the apex zone:
+    # a subdomain with nothing under it hosted elsewhere (other VPSes, CF
+    # Workers, third parties), one per router (home-zj / home-sg ...).
+    - domain: 'home.example.com'
+      authelia_url: 'https://auth.home.example.com'
+      name: 'authelia_session'
+  expiration: '1 hour'
+  inactivity: '5 minutes'
+  remember_me: '1 month'
+
+regulation:
+  # Bans by username after failed first-factor attempts. No 'ip' mode:
+  # Authelia takes the leftmost X-Forwarded-For entry, which NPM's default
+  # proxy.conf lets the client choose.
+  modes:
+    - 'user'
+  max_retries: 3
+  find_time: '2 minutes'
+  ban_time: '5 minutes'
+
+storage:
+  local:
+    # Passkeys, TOTP secrets and preferences, encrypted with the storage key:
+    # keep and restore both together. The init script overrides this path
+    # with uci authelia.main.storage (AUTHELIA_STORAGE_LOCAL_PATH), change it
+    # there, e.g. to a directory on the /mnt disk.
+    path: '/etc/authelia/db/db.sqlite3'
+
+notifier:
+  # Truncated on every start and only carries short-lived one-time codes.
+  filesystem:
+    filename: '/tmp/authelia/notification.txt'
+...

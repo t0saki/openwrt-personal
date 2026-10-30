@@ -7,6 +7,7 @@ on:
       - build.env
       - configs/**
       - profiles/**
+      - packages/**
       - patches/**
       - files/**
       - scripts/**
@@ -15,7 +16,7 @@ on:
     inputs:
       profiles:
         description: Profiles to build (JSON list, see profiles/)
-        default: '["base", "alderlake", "tr3000_v1"]'
+        default: '["base", "base_docker", "alderlake", "alderlake_docker", "tr3000_v1"]'
       release:
         description: Publish a GitHub release (main only; other branches keep workflow artifacts)
         type: boolean
@@ -40,8 +41,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Keep the default in sync with PROFILES and make_latest in the release job.
-        profile: ${{ fromJSON(inputs.profiles || '["base", "alderlake", "tr3000_v1"]') }}
+        # Keep the default in sync with the dispatch input, and PROFILES and
+        # make_latest in the release job.
+        profile: ${{ fromJSON(inputs.profiles || '["base", "base_docker", "alderlake", "alderlake_docker", "tr3000_v1"]') }}
     env:
       SRC_DIR: ${{ github.workspace }}/immortalwrt
       OUT_DIR: ${{ github.workspace }}/out
@@ -73,7 +75,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison g++ gawk \
             gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev \
-            python3-setuptools rsync swig unzip zlib1g-dev file wget zstd
+            python3-setuptools rsync swig unzip zlib1g-dev file wget zstd \
+            squashfs-tools
 
       # Bootstraps host Go directly instead of building the go1.4 -> 1.26 chain.
       - uses: actions/setup-go@v7
@@ -91,7 +94,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: immortalwrt/dl
-          key: dl-${{ hashFiles('build.env') }}-${{ matrix.profile }}-${{ hashFiles('configs/**', 'profiles/**', 'patches/**') }}
+          key: dl-${{ hashFiles('build.env') }}-${{ matrix.profile }}-${{ hashFiles('configs/**', 'profiles/**', 'packages/**', 'patches/**') }}
           restore-keys: |
             dl-${{ hashFiles('build.env') }}-${{ matrix.profile }}-
             dl-${{ hashFiles('build.env') }}-
@@ -117,6 +120,11 @@ jobs:
 
       - name: Collect firmware
         run: scripts/build.sh collect ${{ matrix.profile }}
+
+      # Runs the new binaries from the collected rootfs image in a chroot and
+      # checks nothing opt-in is enabled in rom. Skips non-x86_64 targets.
+      - name: Smoke test rootfs
+        run: scripts/build.sh smoke ${{ matrix.profile }}
 
       - uses: actions/upload-artifact@v7
         with:
@@ -152,7 +160,7 @@ jobs:
       - name: Assemble release
         id: meta
         env:
-          PROFILES: ${{ inputs.profiles || '["base", "alderlake", "tr3000_v1"]' }}
+          PROFILES: ${{ inputs.profiles || '["base", "base_docker", "alderlake", "alderlake_docker", "tr3000_v1"]' }}
         run: |
           [ -n "$(ls firmware 2>/dev/null)" ] || { echo "no firmware was built"; exit 1; }
           . ./build.env
@@ -196,4 +204,4 @@ jobs:
           body_path: notes.md
           files: payload/*
           # A partial run (failed leg or hand-picked profiles) never becomes latest.
-          make_latest: ${{ needs.build.result == 'success' && (github.event_name == 'push' || inputs.profiles == '["base", "alderlake", "tr3000_v1"]') }}
+          make_latest: ${{ needs.build.result == 'success' && (github.event_name == 'push' || inputs.profiles == '["base", "base_docker", "alderlake", "alderlake_docker", "tr3000_v1"]') }}

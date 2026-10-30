@@ -1,0 +1,26 @@
+diff --git a/include/image.mk b/include/image.mk
+index 7888dfb..2136213 100644
+--- a/include/image.mk
++++ b/include/image.mk
+@@ -420,7 +420,7 @@ else
+ 	-$(CP) -T $(mkfs_cur_target_dir).opkg/ $(mkfs_cur_target_dir)/etc/opkg/
+ 	rm -rf $(mkfs_cur_target_dir).opkg $(mkfs_cur_target_dir).conf
+ endif
+-	$(call prepare_rootfs,$(mkfs_cur_target_dir),$(TOPDIR)/files)
++	$(call prepare_rootfs,$(mkfs_cur_target_dir),$(TOPDIR)/files,$(DISABLED_SERVICES))
+ 
+ $(KDIR)/root.%: kernel_prepare
+ 	$(call Image/mkfs/$(word 1,$(target_params)),$(target_params))
+diff --git a/package/Makefile b/package/Makefile
+index 73c8968..bf53b02 100644
+--- a/package/Makefile
++++ b/package/Makefile
+@@ -123,7 +123,7 @@ endif
+ 
+ 	$(CP) $(TARGET_DIR) $(TARGET_DIR_ORIG)
+ 
+-	$(call prepare_rootfs,$(TARGET_DIR),$(TOPDIR)/files)
++	$(call prepare_rootfs,$(TARGET_DIR),$(TOPDIR)/files,$(DISABLED_SERVICES))
+ 
+ $(curdir)/index: FORCE
+ 	@echo Generating package index...
